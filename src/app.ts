@@ -18,6 +18,9 @@ import { TasksRepository } from './tasks/tasks.repository';
 import { TasksService } from './tasks/tasks.service';
 import { usersRoutes } from './users/users.routes';
 import { UsersRepository } from './users/users.repository';
+import { publicUrlsRoutes, urlsRoutes } from './urls/urls.routes';
+import { UrlsRepository } from './urls/urls.repository';
+import { UrlsService } from './urls/urls.service';
 
 /** Default authenticated rate limit: 100 requests/min per IP (ADR-014). */
 const GLOBAL_RATE_LIMIT_MAX = 100;
@@ -112,11 +115,17 @@ function registerModules(app: FastifyInstance): void {
   const usersRepository = new UsersRepository(prisma);
   const authRepository = new AuthRepository(prisma);
   const tasksRepository = new TasksRepository(prisma);
+  const urlsRepository = new UrlsRepository(prisma);
 
   const authService = new AuthService(usersRepository, authRepository);
   const tasksService = new TasksService(tasksRepository, usersRepository);
+  const urlsService = new UrlsService(urlsRepository);
 
   void app.register(authRoutes, { authService });
   void app.register(tasksRoutes, { tasksService });
   void app.register(usersRoutes, { usersRepository });
+  // URL shortener: the anonymous redirect (publicUrlsRoutes, NO authGuard) and
+  // the authenticated shorten/stats/delete routes (urlsRoutes, behind authGuard).
+  void app.register(publicUrlsRoutes, { urlsService });
+  void app.register(urlsRoutes, { urlsService });
 }

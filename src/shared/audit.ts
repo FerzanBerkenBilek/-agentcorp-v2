@@ -20,6 +20,8 @@ export const AUDIT_ACTION = {
   TASK_UPDATE: 'task.update',
   TASK_ASSIGN: 'task.assign',
   TASK_DELETE: 'task.delete',
+  URL_SHORTEN: 'url.shorten',
+  URL_DELETE: 'url.delete',
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTION)[keyof typeof AUDIT_ACTION];

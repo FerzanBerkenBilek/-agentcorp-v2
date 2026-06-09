@@ -53,6 +53,8 @@ model User {
   /// Tasks assigned to this user (FK Task.assigneeId, NULLABLE, SET NULL).
   assignedTasks Task[]         @relation("TaskAssignee")
   refreshTokens RefreshToken[]
+  /// Short URLs created by this user (FK ShortUrl.ownerId, NOT NULL, CASCADE delete).
+  shortUrls     ShortUrl[]
 
   @@map("users")
 }
@@ -121,4 +123,39 @@ model RefreshToken {
   @@index([expiresAt])
 
   @@map("refresh_tokens")
+}
+
+/// A shortened URL owned by a user (URL Shortener feature — ADR-022/023/024).
+/// `code` is the public, non-enumerable business key (6-char base62, CSPRNG-
+/// generated in the service per ADR-022); `id` (UUID, ADR-016) is the opaque
+/// internal PK. The redirect path looks rows up by `code` (UNIQUE), never by id.
+/// Authorization is object-level (ADR-013/021): owner ONLY may read stats or
+/// delete; 404-not-403 for non-owners. `original_url` is the only client-supplied
+/// field and is SSRF-validated (ADR-019) before persistence.
+model ShortUrl {
+  id             String    @id @default(uuid()) @db.Uuid
+  // 6-char base62 [A-Za-z0-9]; UNIQUE backs both the hot redirect lookup and the
+  // ADR-022 insert-retry-on-collision (P2002) uniqueness guarantee.
+  code           String    @unique @db.VarChar(6)
+  // Arbitrary-length destination; TEXT (no business length cap at the column —
+  // the 2048-byte abuse cap is enforced in validation, ADR-019/M2).
+  originalUrl    String    @map("original_url") @db.Text
+  ownerId        String    @map("owner_id") @db.Uuid
+  // Atomic increment on each redirect (ADR-023), never read-modify-write.
+  clickCount     Int       @default(0) @map("click_count")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  // null until the first redirect; set together with the click_count increment.
+  lastAccessedAt DateTime? @map("last_accessed_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  // Deleting a user removes all their short URLs (no orphaned links).
+  owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  // ── Indexes (data-lead index strategy, ADR-024) ───────────────────────────
+  // UNIQUE(code) is created by @unique above: the HOT path — WHERE code = ? on
+  // every GET /:code redirect and GET /:code/stats. EXPLAIN must show Index Scan.
+  // Owner-scoped: owner-only authz on stats/delete + any "list my URLs" read.
+  @@index([ownerId])
+
+  @@map("short_urls")
 }

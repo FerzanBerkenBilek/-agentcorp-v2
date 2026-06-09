@@ -1,7 +1,9 @@
 import { randomUUID } from 'crypto';
+import { Prisma } from '@prisma/client';
 import type {
   PrismaClient,
   RefreshToken,
+  ShortUrl,
   Task,
   TaskPriority,
   TaskStatus,
@@ -28,6 +30,7 @@ import type {
 interface UserRow extends User {}
 interface TaskRow extends Task {}
 interface RefreshTokenRow extends RefreshToken {}
+interface ShortUrlRow extends ShortUrl {}
 
 /** Thrown to mimic Prisma's known-request-error envelope (code + meta). */
 class FakePrismaError extends Error {
@@ -46,6 +49,31 @@ export interface FakeStore {
   users: Map<string, UserRow>;
   tasks: Map<string, TaskRow>;
   refreshTokens: Map<string, RefreshTokenRow>;
+  /** Keyed by short code (the unique business key), mirroring UNIQUE(code). */
+  shortUrls: Map<string, ShortUrlRow>;
+}
+
+/**
+ * Build a REAL `Prisma.PrismaClientKnownRequestError` (not just a look-alike) so
+ * that `error instanceof Prisma.PrismaClientKnownRequestError` checks in the
+ * code under test (e.g. UrlsService collision-retry) behave exactly as they do
+ * against a live database.
+ *
+ * @param code The Prisma error code (e.g. 'P2002', 'P2025').
+ * @param message Human-readable message.
+ * @param meta Optional Prisma `meta` (e.g. the violated `target`).
+ * @returns A genuine PrismaClientKnownRequestError instance.
+ */
+function prismaKnownError(
+  code: string,
+  message: string,
+  meta?: Record<string, unknown>,
+): Prisma.PrismaClientKnownRequestError {
+  return new Prisma.PrismaClientKnownRequestError(message, {
+    code,
+    clientVersion: 'test',
+    meta,
+  });
 }
 
 /**
@@ -82,6 +110,7 @@ export function createFakePrisma(): { prisma: PrismaClient; store: FakeStore } {
     users: new Map(),
     tasks: new Map(),
     refreshTokens: new Map(),
+    shortUrls: new Map(),
   };
 
   const user = {
@@ -218,10 +247,64 @@ export function createFakePrisma(): { prisma: PrismaClient; store: FakeStore } {
     },
   };
 
+  const shortUrl = {
+    create: async (args: { data: ShortUrlCreateData }): Promise<ShortUrlRow> => {
+      // Mirror UNIQUE(code): a duplicate code surfaces as a real Prisma P2002,
+      // which UrlsService catches to regenerate + retry (ADR-022).
+      if (store.shortUrls.has(args.data.code)) {
+        throw prismaKnownError('P2002', 'Unique constraint failed', { target: ['code'] });
+      }
+      const now = new Date();
+      const row: ShortUrlRow = {
+        id: randomUUID(),
+        code: args.data.code,
+        originalUrl: args.data.originalUrl,
+        ownerId: args.data.ownerId,
+        clickCount: 0,
+        createdAt: now,
+        lastAccessedAt: null,
+        updatedAt: now,
+      };
+      store.shortUrls.set(row.code, row);
+      return row;
+    },
+    findUnique: async (args: { where: { code: string } }): Promise<ShortUrlRow | null> => {
+      return store.shortUrls.get(args.where.code) ?? null;
+    },
+    update: async (args: {
+      where: { code: string };
+      data: ShortUrlUpdateData;
+    }): Promise<ShortUrlRow> => {
+      const existing = store.shortUrls.get(args.where.code);
+      if (!existing) {
+        throw prismaKnownError('P2025', 'Record to update not found');
+      }
+      // Honour the atomic `{ increment }` operator the repository uses (ADR-023).
+      const increment = args.data.clickCount?.increment ?? 0;
+      const updated: ShortUrlRow = {
+        ...existing,
+        clickCount: existing.clickCount + increment,
+        lastAccessedAt: args.data.lastAccessedAt ?? existing.lastAccessedAt,
+        updatedAt: new Date(),
+      };
+      store.shortUrls.set(updated.code, updated);
+      return updated;
+    },
+    delete: async (args: { where: { code: string } }): Promise<ShortUrlRow> => {
+      const existing = store.shortUrls.get(args.where.code);
+      if (!existing) {
+        throw prismaKnownError('P2025', 'Record to delete not found');
+      }
+      store.shortUrls.delete(args.where.code);
+      return existing;
+    },
+  };
+
   const client = {
     user,
     task,
     refreshToken,
+    shortUrl,
     // The tasks repository runs [findMany, count] inside a transaction.
     $transaction: async <T>(ops: Promise<T>[]): Promise<T[]> => Promise.all(ops),
     $disconnect: async (): Promise<void> => undefined,
@@ -245,6 +328,17 @@ interface RefreshTokenCreateData {
   jti: string;
   userId: string;
   expiresAt: Date;
+}
+
+interface ShortUrlCreateData {
+  code: string;
+  originalUrl: string;
+  ownerId: string;
+}
+
+interface ShortUrlUpdateData {
+  clickCount?: { increment: number };
+  lastAccessedAt?: Date;
 }
 
 interface TaskWhere {

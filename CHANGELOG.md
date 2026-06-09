@@ -5,6 +5,46 @@ All notable changes to the Task Management API are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] — 2026-06-09
+
+Adds a URL shortener to the API: create short links, resolve them with an
+anonymous redirect, and track clicks on links you own.
+
+### Added
+
+- **URL shortener.** Four new endpoints: shorten a long URL (`POST /shorten`),
+  resolve a code with an anonymous redirect (`GET /:code`), read a link's click
+  analytics (`GET /:code/stats`, owner-only), and delete a link
+  (`DELETE /:code`, owner-only). See the
+  [API reference](docs/api.md#url-shortener).
+- **Short codes.** Each link gets a unique 6-character code drawn from a
+  cryptographically secure random source, so codes cannot be guessed or
+  enumerated.
+- **Click analytics.** Every resolution of a short link increments its click
+  count and records the last-accessed time, visible to the link owner via
+  `GET /:code/stats`.
+- **Per-IP shorten rate limit.** Creating short links is limited to 10 requests
+  per minute per IP address to curb abuse.
+
+### Security
+
+- **SSRF-hardened URL validation.** Submitted URLs are validated before they are
+  stored: only `http`/`https` schemes are allowed; only ports 80 and 443; URLs
+  with embedded credentials are rejected; and every DNS-resolved address is
+  range-checked, blocking `localhost`/loopback, private (RFC1918) ranges,
+  link-local and cloud-metadata addresses (`169.254.169.254`), CGNAT, IPv6
+  unique-local/link-local, and IPv4-mapped IPv6 equivalents. DNS resolution
+  fails closed (rejects on error or timeout).
+- **Owner-only analytics and deletion.** Only the link owner can read a link's
+  stats or delete it. Requests from anyone else return `404 Not Found` (never
+  `403`), so the existence of a code is not disclosed.
+- **Takedown-safe redirects.** The redirect returns `302 Found` with
+  `Cache-Control: no-store` rather than a permanently-cached `301`, so deleting
+  a link takes effect immediately and abusive links can be retracted — and
+  click counting keeps working on every hit.
+
+---
+
 ## [1.0.0] — 2026-06-09
 
 Initial public release of the Task Management API: a REST API for creating,
@@ -75,4 +115,5 @@ organizing, assigning, and tracking tasks, with secure JWT-based authentication.
   for PostgreSQL (see the [README](README.md)). Containerization and CI are
   planned for a future operations sprint.
 
+[1.1.0]: https://keepachangelog.com/en/1.1.0/
 [1.0.0]: https://keepachangelog.com/en/1.1.0/

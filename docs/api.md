@@ -23,6 +23,10 @@ REST API for the Task Management service.
   - [PATCH /tasks/:id](#patch-tasksid)
   - [DELETE /tasks/:id](#delete-tasksid)
   - [GET /users/me](#get-usersme)
+  - [POST /shorten](#post-shorten)
+  - [GET /:code](#get-code)
+  - [GET /:code/stats](#get-codestats)
+  - [DELETE /:code](#delete-code)
 
 ---
 
@@ -117,6 +121,7 @@ Call [`POST /auth/logout`](#post-authlogout). It revokes the refresh-token famil
 | `POST /auth/register` | 5 requests / 15 min per IP |
 | `POST /auth/login` | 5 requests / 15 min per IP |
 | `POST /auth/refresh` | 30 requests / 15 min per IP |
+| `POST /shorten` | 10 requests / min per IP |
 | All authenticated endpoints (global default) | 100 requests / min per IP |
 
 ---
@@ -658,6 +663,221 @@ Return the authenticated user's profile. The password hash is never included.
 
 ```bash
 curl -s http://localhost:3000/users/me \
+  -H "Authorization: Bearer $ACCESS_TOKEN"
+```
+
+---
+
+## URL Shortener
+
+Turn a long URL into a short 6-character code, then resolve that code with an
+anonymous redirect. Owners can view click analytics and delete their links.
+
+### Short codes
+
+A short code is exactly **6 characters** from the base62 alphabet
+(`A`–`Z`, `a`–`z`, `0`–`9`). Codes are generated from a cryptographically secure
+random source (not sequential), so they are not enumerable. The code is the
+public token used in the redirect URL (`http://localhost:3000/<code>`).
+
+### URL safety policy (SSRF / open-redirect, ADR-019)
+
+Every submitted URL is validated at creation time before it is stored. A URL is
+accepted **only if** it passes all of:
+
+- **Scheme:** `http:` or `https:` only. `javascript:`, `data:`, `file:`, `ftp:`,
+  and all other schemes are rejected.
+- **No embedded credentials:** a `user:pass@host` URL is rejected.
+- **Port:** only the default web ports `80` and `443` (or no explicit port).
+- **Host / resolved IP:** the host is resolved via DNS and **every** resolved
+  address is range-checked. URLs that point at `localhost`, loopback
+  (`127.0.0.0/8`, `::1`), private RFC1918 ranges (`10/8`, `172.16/12`,
+  `192.168/16`), link-local / cloud metadata (`169.254.0.0/16`, including
+  `169.254.169.254`), CGNAT (`100.64/10`), IPv6 ULA/link-local, and
+  **IPv4-mapped IPv6** equivalents (e.g. `::ffff:127.0.0.1`) are rejected.
+- **Length:** at most 2048 bytes.
+- **Fail closed:** if DNS resolution fails or times out (3s), the URL is
+  rejected.
+
+Any violation returns `422 VALIDATION_ERROR`. The rejected URL is never echoed
+back in the error message.
+
+---
+
+### POST /shorten
+
+Create a short code for a long URL. The link is owned by the caller.
+
+- **Auth:** Bearer access token.
+- **Rate limit:** 10 / min per IP.
+
+**Request headers**
+
+| Header | Value | Required |
+|---|---|---|
+| `Authorization` | `Bearer <accessToken>` | Yes |
+| `Content-Type` | `application/json` | Yes |
+
+**Request body**
+
+| Field | Type | Required | Constraints |
+|---|---|---|---|
+| `url` | string | Yes | 1–2048 chars; must pass the [URL safety policy](#url-safety-policy-ssrf--open-redirect-adr-019). |
+
+`url` is the **only** accepted field. Unknown fields are rejected (`.strict()`).
+The owner, code, click count, and timestamps are all set server-side.
+
+**Success — `201 Created`**
+
+```json
+{
+  "success": true,
+  "data": {
+    "code": "aZ3xK9",
+    "originalUrl": "https://example.com/some/very/long/path?ref=newsletter",
+    "createdAt": "2026-06-09T12:00:00.000Z"
+  }
+}
+```
+
+**Errors**
+
+| Status | `code` | Cause |
+|---|---|---|
+| `401` | `AUTH_ERROR` | Missing/invalid access token. |
+| `422` | `VALIDATION_ERROR` | Missing/empty/oversized `url`, an unknown field, or a URL that fails the safety policy (unsafe scheme, private/loopback/metadata host, disallowed port, embedded credentials, unresolvable host). |
+| `429` | `RATE_LIMIT_EXCEEDED` | More than 10 shorten requests / min from this IP. |
+| `409` | `CONFLICT` | Could not allocate a unique code after repeated collisions (effectively never — see ADR-022). |
+
+**curl**
+
+```bash
+curl -i -X POST http://localhost:3000/shorten \
+  -H "Authorization: Bearer $ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"url":"https://example.com/some/very/long/path?ref=newsletter"}'
+```
+
+---
+
+### GET /:code
+
+Resolve a short code and redirect to the original URL. This is the **only**
+shortener endpoint that does not require authentication.
+
+- **Auth:** none (anonymous).
+- **Side effect:** increments the link's click count and updates its
+  last-accessed time.
+
+**Path parameters**
+
+| Param | Type | Constraints |
+|---|---|---|
+| `code` | string | Exactly 6 base62 chars (`^[A-Za-z0-9]{6}$`). |
+
+**Success — `302 Found`**
+
+No body. Response headers:
+
+| Header | Value |
+|---|---|
+| `Location` | The original (stored) URL. |
+| `Cache-Control` | `no-store` |
+
+**Why 302 and not 301 (ADR-020):** a `301 Moved Permanently` is cached
+indefinitely by browsers and proxies. That would (a) stop click tracking after
+the first hit, since the client never returns to the server, and (b) make a
+deleted or abusive link irretractable — a cached 301 keeps redirecting even
+after `DELETE /:code`. A `302 Found` with `Cache-Control: no-store` keeps every
+click server-mediated, so analytics stay accurate and takedown is immediate.
+
+**Errors**
+
+| Status | `code` | Cause |
+|---|---|---|
+| `404` | — | The code does not exist (or was deleted). Returned with no body, and does not confirm whether any code ever existed. |
+| `422` | `VALIDATION_ERROR` | The code is not 6 base62 characters. |
+
+**curl**
+
+```bash
+# -i shows the 302 status, Location, and Cache-Control headers.
+# Omit -L so curl does NOT auto-follow the redirect.
+curl -i http://localhost:3000/aZ3xK9
+```
+
+---
+
+### GET /:code/stats
+
+Read click analytics for a short code. **Owner only.**
+
+- **Auth:** Bearer access token. The caller must be the link's owner.
+
+**Path parameters**
+
+| Param | Type | Constraints |
+|---|---|---|
+| `code` | string | Exactly 6 base62 chars. |
+
+**Success — `200 OK`**
+
+```json
+{
+  "success": true,
+  "data": {
+    "clickCount": 42,
+    "createdAt": "2026-06-09T12:00:00.000Z",
+    "lastAccessedAt": "2026-06-09T15:30:00.000Z"
+  }
+}
+```
+
+`lastAccessedAt` is `null` until the link has been resolved at least once.
+
+**Errors**
+
+| Status | `code` | Cause |
+|---|---|---|
+| `401` | `AUTH_ERROR` | Missing/invalid access token. |
+| `422` | `VALIDATION_ERROR` | The code is not 6 base62 characters. |
+| `404` | `NOT_FOUND` | The code does not exist, **or** the caller is not its owner (404 instead of 403 to prevent enumeration). See ADR-021. |
+
+**curl**
+
+```bash
+curl -s http://localhost:3000/aZ3xK9/stats \
+  -H "Authorization: Bearer $ACCESS_TOKEN"
+```
+
+---
+
+### DELETE /:code
+
+Delete a short code. **Owner only.** After deletion the redirect returns `404`.
+
+- **Auth:** Bearer access token. The caller must be the link's owner.
+
+**Path parameters**
+
+| Param | Type | Constraints |
+|---|---|---|
+| `code` | string | Exactly 6 base62 chars. |
+
+**Success — `204 No Content`** — empty body.
+
+**Errors**
+
+| Status | `code` | Cause |
+|---|---|---|
+| `401` | `AUTH_ERROR` | Missing/invalid access token. |
+| `422` | `VALIDATION_ERROR` | The code is not 6 base62 characters. |
+| `404` | `NOT_FOUND` | The code does not exist, **or** the caller is not its owner (404 instead of 403 to prevent enumeration). |
+
+**curl**
+
+```bash
+curl -i -X DELETE http://localhost:3000/aZ3xK9 \
   -H "Authorization: Bearer $ACCESS_TOKEN"
 ```
 

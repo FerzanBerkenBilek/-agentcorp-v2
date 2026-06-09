@@ -11,6 +11,7 @@ A production-ready REST API for managing tasks and users, with JWT-based authent
 - [Environment Variables](#environment-variables)
 - [Available Scripts](#available-scripts)
 - [API Overview](#api-overview)
+- [URL Shortener](#url-shortener)
 - [Documentation](#documentation)
 - [Contributing](#contributing)
 
@@ -218,9 +219,90 @@ All responses use a uniform envelope:
 | `PATCH` | `/tasks/:id` | Bearer | Update a task; reassign/unassign is owner-only. |
 | `DELETE` | `/tasks/:id` | Bearer | Delete a task (owner only). |
 | `GET` | `/users/me` | Bearer | Return the authenticated user's profile. |
+| `POST` | `/shorten` | Bearer | Create a 6-char short code for a long URL (URL-safety validated). |
+| `GET` | `/:code` | None | Resolve a short code; `302` redirect to the original URL. |
+| `GET` | `/:code/stats` | Bearer | Click analytics for a short code (owner only). |
+| `DELETE` | `/:code` | Bearer | Delete a short code (owner only). |
 | `GET` | `/health` | None | Liveness probe; returns `{ status: "ok" }`. |
 
 Full request/response schemas, error codes, and working `curl` examples are in **[`docs/api.md`](docs/api.md)**.
+
+---
+
+## URL Shortener
+
+Turn a long URL into a short, 6-character base62 code, then resolve that code with an anonymous `302` redirect. Codes come from a cryptographically secure random source (not sequential), so they are not enumerable. Every submitted URL is validated against an SSRF / open-redirect policy at creation time — only `http`/`https`, default web ports, and public hosts are accepted; `localhost`, private/RFC1918, loopback, cloud-metadata (`169.254.169.254`), and IPv4-mapped-IPv6 equivalents are rejected (ADR-019). `POST`/`DELETE`/stats require auth; the redirect is public.
+
+In the examples below, `$ACCESS_TOKEN` is an access token from `POST /auth/login`. Full schemas and error tables are in **[`docs/api.md`](docs/api.md#url-shortener)**.
+
+### Endpoints
+
+#### `POST /shorten`
+
+- **Auth:** Bearer access token. **Rate limit:** 10 requests / min per IP.
+- Create a short code for a long URL. The link is owned by the caller; `url` is the only accepted field (all other fields are set server-side).
+
+```bash
+curl -i -X POST http://localhost:3000/shorten \
+  -H "Authorization: Bearer $ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"url":"https://example.com/some/very/long/path?ref=newsletter"}'
+```
+
+```jsonc
+// 201 Created
+{ "success": true, "data": {
+  "code": "aZ3xK9",
+  "originalUrl": "https://example.com/some/very/long/path?ref=newsletter",
+  "createdAt": "2026-06-09T12:00:00.000Z"
+} }
+```
+
+#### `GET /:code`
+
+- **Auth:** none (anonymous) — the only public shortener endpoint.
+- Resolves the code and redirects to the original URL, incrementing its click count. Returns **`302 Found`** with `Cache-Control: no-store` (not `301`, so click tracking stays accurate and deletes take effect immediately — ADR-020). `404` if the code does not exist.
+
+```bash
+# -i shows the 302 + Location + Cache-Control headers; omit -L so curl does not auto-follow.
+curl -i http://localhost:3000/aZ3xK9
+```
+
+```http
+HTTP/1.1 302 Found
+Location: https://example.com/some/very/long/path?ref=newsletter
+Cache-Control: no-store
+```
+
+#### `GET /:code/stats`
+
+- **Auth:** Bearer access token. **Owner only.**
+- Returns click analytics. A non-owner (or missing code) gets `404`, not `403`, to prevent enumeration (ADR-021).
+
+```bash
+curl -s http://localhost:3000/aZ3xK9/stats \
+  -H "Authorization: Bearer $ACCESS_TOKEN"
+```
+
+```jsonc
+// 200 OK  (lastAccessedAt is null until the first redirect)
+{ "success": true, "data": {
+  "clickCount": 42,
+  "createdAt": "2026-06-09T12:00:00.000Z",
+  "lastAccessedAt": "2026-06-09T15:30:00.000Z"
+} }
+```
+
+#### `DELETE /:code`
+
+- **Auth:** Bearer access token. **Owner only.**
+- Deletes the link; afterwards the redirect returns `404`. A non-owner (or missing code) gets `404`, not `403`.
+
+```bash
+curl -i -X DELETE http://localhost:3000/aZ3xK9 \
+  -H "Authorization: Bearer $ACCESS_TOKEN"
+# 204 No Content
+```
 
 ---
 
