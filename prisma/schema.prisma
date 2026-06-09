@@ -1,0 +1,124 @@
+// This is the single source of truth for the database schema.
+// Generated client: @prisma/client
+// DB: PostgreSQL 16
+//
+// Implements the data-lead entity model (brief.md "Data-Lead Output") and the
+// security requirements ADR-012 (refresh-token rotation + reuse detection),
+// ADR-013 (object-level authz / IDOR resistance), ADR-016 (UUID PKs),
+// ADR-017 (3NF + native enums), ADR-018 (single Postgres store).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ────────────────────────────────────────────────────────────────────
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  DONE
+  CANCELLED
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+// ─── Models ───────────────────────────────────────────────────────────────────
+
+/// A registered application user. Owns tasks and can be assigned tasks.
+/// Email is stored lowercase (case-insensitivity enforced in users.service —
+/// lowercase-on-write, NOT citext; see data-lead open decision + ADR-017).
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  // RFC 5321 max email length is 254 chars; 320 leaves headroom. Unique index
+  // (login lookup + uniqueness invariant) is auto-created by @unique.
+  email        String   @unique @db.VarChar(320)
+  // bcrypt hash is fixed-length 60 chars; 72 leaves headroom (ADR-008).
+  passwordHash String   @map("password_hash") @db.VarChar(72)
+  name         String   @db.VarChar(100)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  /// Tasks created by this user (FK Task.ownerId, NOT NULL, CASCADE delete).
+  ownedTasks    Task[]         @relation("TaskOwner")
+  /// Tasks assigned to this user (FK Task.assigneeId, NULLABLE, SET NULL).
+  assignedTasks Task[]         @relation("TaskAssignee")
+  refreshTokens RefreshToken[]
+
+  @@map("users")
+}
+
+/// A task created by a user (owner) and optionally assigned to another user.
+/// Authorization is object-level (ADR-013): owner OR assignee may read/update;
+/// owner ONLY may reassign/delete.
+model Task {
+  id          String       @id @default(uuid()) @db.Uuid
+  title       String       @db.VarChar(255)
+  description String?      @db.Text
+  status      TaskStatus   @default(TODO)
+  priority    TaskPriority @default(MEDIUM)
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+
+  ownerId    String  @map("owner_id") @db.Uuid
+  assigneeId String? @map("assignee_id") @db.Uuid
+
+  owner    User  @relation("TaskOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  assignee User? @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+
+  // ── Indexes (data-lead index strategy) ────────────────────────────────────
+  // Composite serves "tasks owned by me", owner+status, and owner+status+priority
+  // filtered lists via leftmost-prefix matching. Makes a standalone (ownerId)
+  // and (ownerId, status) index redundant — those are intentionally omitted to
+  // reduce write amplification (data-lead instruction; EXPLAIN-validated below).
+  @@index([ownerId, status, priority])
+  // priority is NOT a prefix of the 3-col index, so this is required for
+  // owner + priority filtering without status.
+  @@index([ownerId, priority])
+  // "Tasks assigned to me". Partial (WHERE assignee_id IS NOT NULL) is applied
+  // in migration 002 to skip the many NULL-assignee rows.
+  @@index([assigneeId])
+
+  @@map("tasks")
+}
+
+/// Refresh tokens for auth session management (ADR-005, ADR-012).
+/// Only the SHA-256 HASH of the token is stored, never plaintext. Tokens are
+/// grouped into a rotation `family`; each token carries a unique `jti`. On every
+/// refresh the presented token is rotated (new jti, same family); reuse of a
+/// consumed token => assume theft => revoke the whole family.
+model RefreshToken {
+  id          String    @id @default(uuid()) @db.Uuid
+  // SHA-256 hex digest = 64 chars. Unique: a given token hash maps to one row.
+  hashedToken String    @unique @map("hashed_token") @db.VarChar(64)
+  // UUID identifying the rotation chain (one login session).
+  family      String    @db.Uuid
+  // UUID unique per individual token; the unique business key.
+  jti         String    @unique @db.Uuid
+  userId      String    @map("user_id") @db.Uuid
+  expiresAt   DateTime  @map("expires_at")
+  // null = active; set = revoked/consumed.
+  revokedAt   DateTime? @map("revoked_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Reuse detection within a rotation family (ADR-012). Also enforces the
+  // (family, jti) uniqueness invariant.
+  @@unique([family, jti])
+  // "tokens by user" — revoke-all-by-user / logout-all-devices.
+  @@index([userId])
+  // Expired-token cleanup cron: DELETE WHERE expires_at < now().
+  @@index([expiresAt])
+
+  @@map("refresh_tokens")
+}

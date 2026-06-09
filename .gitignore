@@ -1,0 +1,11 @@
+﻿node_modules/
+dist/
+coverage/
+.env
+*.env.local
+agentcorp.db
+agentcorp.db-wal
+agentcorp.db-shm
+context/brief.md
+context/decisions.md
+context/patterns.md
