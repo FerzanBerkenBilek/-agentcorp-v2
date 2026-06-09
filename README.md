@@ -10,6 +10,12 @@
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178c6)
 ![License](https://img.shields.io/badge/version-1.1.0-blue)
 
+## 🤖 Built with Claude Code Agents
+
+This project was designed and implemented using AgentCorp v2 — an orchestrated system of 20 specialized Claude Code agents working in a 3-tier hierarchy. Each agent has a defined role, communicates via a shared scratchpad (brief.md), and persists memory across sessions using the agentmemory MCP.
+
+The agent system is included in this repo (.agents/) and can be installed to replicate the same development workflow on any machine.
+
 A REST API combining a JWT-secured **task manager** and an SSRF-hardened **URL shortener**, built on Node.js 22, TypeScript (strict), Fastify, Prisma, and PostgreSQL. It is production-ready by construction: a strict layered architecture (route → service → repository), object-level authorization on every resource, threat-modeled security on every feature, **197 tests at 98.74% line coverage**, and **24 Architecture Decision Records** documenting every non-obvious choice.
 
 ---
@@ -17,18 +23,18 @@ A REST API combining a JWT-secured **task manager** and an SSRF-hardened **URL s
 ## ✨ Features
 
 ### 📋 Task Management
-- 🔐 JWT authentication with refresh-token rotation (and reuse detection)
-- ✏️ Create, update, delete tasks
-- 👥 Assign tasks to other users (assignees can view and update)
-- 🔎 Filter by status (`TODO` / `IN_PROGRESS` / `DONE` / `CANCELLED`) and priority (`LOW` / `MEDIUM` / `HIGH` / `URGENT`)
-- 🛡️ Rate limiting, CSRF protection, audit logging
+- JWT authentication with refresh-token rotation (and reuse detection)
+- Create, update, delete tasks
+- Assign tasks to other users (assignees can view and update)
+- Filter by status (`TODO` / `IN_PROGRESS` / `DONE` / `CANCELLED`) and priority (`LOW` / `MEDIUM` / `HIGH` / `URGENT`)
+- Rate limiting, CSRF protection, audit logging
 
 ### 🔗 URL Shortener
-- ✂️ Shorten any URL, get a 6-character alphanumeric code
-- 🔀 Anonymous redirect (`302`, click-tracking compatible)
-- 📊 Per-URL statistics: click count, created date, last accessed
-- 🔒 Owner-only management (read stats, delete)
-- ⏱️ Rate limited: 10 requests/minute per IP
+- Shorten any URL, get a 6-character alphanumeric code
+- Anonymous redirect (`302`, click-tracking compatible)
+- Per-URL statistics: click count, created date, last accessed
+- Owner-only management (read stats, delete)
+- Rate limited: 10 requests/minute per IP
 
 ---
 
@@ -55,11 +61,11 @@ Each feature module is a vertical slice with the same internal layers:
 ```
 
 ### Design Principles
-- 🧱 **Clean architecture** — strict route → service → repository separation (ADR-010)
-- 🚫 **Business logic in the service layer, never in controllers**
-- 💉 **Dependency injection** throughout (repositories injected into services, services into routes)
-- 📝 **Every public function documented** with JSDoc (`@param` / `@returns` / `@throws`)
-- 🔢 **No magic numbers** — all constants named (`CODE_LENGTH`, `MAX_URL_LENGTH`, `DNS_TIMEOUT_MS`, …)
+- **Clean architecture** — strict route → service → repository separation (ADR-010)
+- **Business logic in the service layer, never in controllers**
+- **Dependency injection** throughout (repositories injected into services, services into routes)
+- **Every public function documented** with JSDoc (`@param` / `@returns` / `@throws`)
+- **No magic numbers** — all constants named (`CODE_LENGTH`, `MAX_URL_LENGTH`, `DNS_TIMEOUT_MS`, …)
 
 ### Architecture Decisions (ADRs)
 
@@ -97,40 +103,40 @@ This project documents **24 architecture decisions** in [`context/decisions.md`]
 ## 🔒 Security
 
 ### Threat Model
-- 🎯 **STRIDE threat modeling** applied to every feature before implementation
-- ✅ **OWASP Top 10** checked for every endpoint
+- **STRIDE threat modeling** applied to every feature before implementation
+- **OWASP Top 10** checked for every endpoint
 
 ### Authentication
-- 🔑 JWT **HS256 with a pinned algorithm** — forged `alg:none` tokens are rejected
-- ♻️ **Refresh-token rotation** with `family` / `jti` **reuse detection** (replay revokes the family)
-- 🍪 Refresh tokens delivered as **httpOnly, Secure, SameSite=Strict cookies** (XSS-resistant)
-- 📏 **32-byte minimum secret** enforced from the environment at startup (the process refuses to boot otherwise)
+- JWT **HS256 with a pinned algorithm** — forged `alg:none` tokens are rejected
+- **Refresh-token rotation** with `family` / `jti` **reuse detection** (replay revokes the family)
+- Refresh tokens delivered as **httpOnly, Secure, SameSite=Strict cookies** (XSS-resistant)
+- **32-byte minimum secret** enforced from the environment at startup (the process refuses to boot otherwise)
 
 ### Authorization
-- 🚷 **IDOR prevention** — resource ownership verified on every read/update/delete
-- 🕵️ **`404` instead of `403`** for unauthorized resources (prevents enumeration)
-- 📜 Owner/assignee scope checked at the policy layer (`tasks.policy.ts`, `urls.policy.ts`)
+- **IDOR prevention** — resource ownership verified on every read/update/delete
+- **`404` instead of `403`** for unauthorized resources (prevents enumeration)
+- Owner/assignee scope checked at the policy layer (`tasks.policy.ts`, `urls.policy.ts`)
 
 ### SSRF Prevention (URL Shortener)
 Implemented in [`src/shared/url-safety.ts`](src/shared/url-safety.ts), validated at **write time** before a URL is ever stored:
 
-- 🚫 **Blocks IPv4:** `0.0.0.0/8`, `10.0.0.0/8`, `100.64.0.0/10` (CGNAT), `127.0.0.0/8` (loopback), `169.254.0.0/16` (link-local incl. `169.254.169.254` metadata), `172.16.0.0/12`, `192.168.0.0/16`, `255.255.255.255`
-- 🚫 **Blocks IPv6:** loopback (`::1`), unspecified (`::`), link-local (`fe80::/10`), unique-local (`fc00::/7`)
-- 🚫 **Blocks IPv4-mapped IPv6** (`::ffff:x.x.x.x`) in **both** dotted-decimal **and** compressed-hex form (`::ffff:7f00:1`) — caught as a real bypass during QA review and closed with a reject matrix
-- 🔐 **Scheme/port allowlist:** only `http`/`https`, only ports 80/443, no embedded credentials, 2048-byte cap
-- 🧮 **Encoding-proof:** decimal/hex/octal IPv4 literals (e.g. `http://2130706433/`) are normalized before the range check
-- ⛔ **Fail-closed:** DNS resolution failure or 3s timeout rejects the request
+- **Blocks IPv4:** `0.0.0.0/8`, `10.0.0.0/8`, `100.64.0.0/10` (CGNAT), `127.0.0.0/8` (loopback), `169.254.0.0/16` (link-local incl. `169.254.169.254` metadata), `172.16.0.0/12`, `192.168.0.0/16`, `255.255.255.255`
+- **Blocks IPv6:** loopback (`::1`), unspecified (`::`), link-local (`fe80::/10`), unique-local (`fc00::/7`)
+- **Blocks IPv4-mapped IPv6** (`::ffff:x.x.x.x`) in **both** dotted-decimal **and** compressed-hex form (`::ffff:7f00:1`) — caught as a real bypass during QA review and closed with a reject matrix
+- **Scheme/port allowlist:** only `http`/`https`, only ports 80/443, no embedded credentials, 2048-byte cap
+- **Encoding-proof:** decimal/hex/octal IPv4 literals (e.g. `http://2130706433/`) are normalized before the range check
+- **Fail-closed:** DNS resolution failure or 3s timeout rejects the request
 
 ### Rate Limiting
-- 🔐 Auth endpoints: **5 requests / 15 min per IP** (brute-force prevention)
-- ✂️ URL shortening: **10 requests / min per IP**
-- 🌐 Global authenticated default: **100 requests / min per IP**
-- 🙈 **Generic error messages** on auth failure (no account enumeration)
+- Auth endpoints: **5 requests / 15 min per IP** (brute-force prevention)
+- URL shortening: **10 requests / min per IP**
+- Global authenticated default: **100 requests / min per IP**
+- **Generic error messages** on auth failure (no account enumeration)
 
 ### Input Validation
-- 🧾 **Zod** schemas on every endpoint, `.strict()` to reject unknown keys
-- 🔗 **URL validation:** structure + SSRF range-check before storage
-- 💉 **SQL injection:** prevented by Prisma parameterized queries (no raw string SQL)
+- **Zod** schemas on every endpoint, `.strict()` to reject unknown keys
+- **URL validation:** structure + SSRF range-check before storage
+- **SQL injection:** prevented by Prisma parameterized queries (no raw string SQL)
 
 ---
 
@@ -148,10 +154,10 @@ Implemented in [`src/shared/url-safety.ts`](src/shared/url-safety.ts), validated
 | TypeScript errors | 0 |
 
 ### Test Strategy
-- 🧩 **Unit tests** — pure functions and services, isolated, fast
-- 🔁 **Integration tests** — full HTTP request/response cycle against an in-memory Prisma stand-in (`src/test/fake-prisma.ts`) so CI needs no live database
-- 🧾 **Schema validation** tested with both valid and invalid inputs
-- 🛡️ **Security tests** — SSRF bypass matrix, auth edge cases, rate-limit behavior, refresh-token reuse detection
+- **Unit tests** — pure functions and services, isolated, fast
+- **Integration tests** — full HTTP request/response cycle against an in-memory Prisma stand-in (`src/test/fake-prisma.ts`) so CI needs no live database
+- **Schema validation** tested with both valid and invalid inputs
+- **Security tests** — SSRF bypass matrix, auth edge cases, rate-limit behavior, refresh-token reuse detection
 
 ### Running Tests
 
@@ -160,6 +166,34 @@ npm test                    # run all tests
 npm run test:coverage       # with coverage report
 npm test -- src/auth/       # a specific module
 ```
+
+---
+
+## 🧹 Code Quality
+
+### Standards Enforced
+- Functions: max ~15 lines average, 40-line hard limit
+- Cyclomatic complexity: flagged above 10, refactor required
+- No magic numbers: all constants named and documented
+- No dead code: unused imports, functions, branches removed
+- Comments explain WHY, not WHAT
+- Every public function has JSDoc
+
+### What Gets Rejected
+- Business logic in controllers (must be in service layer)
+- God classes or files over 200 lines without clear justification
+- Copy-paste duplication (DRY enforced)
+- Speculative abstractions (YAGNI enforced)
+- Wrapper functions that add no value
+- Obvious comments ("// increment counter")
+
+### Review Gate
+Every implementation goes through a dedicated code-quality agent review before quality-lead approval. The gate checks:
+- Cyclomatic complexity per function
+- Duplication ratio
+- Naming quality (variables, functions, classes)
+- Abstraction level consistency
+- AI-generated bloat patterns
 
 ---
 
@@ -179,10 +213,10 @@ Orchestrator
 ```
 
 ### Memory & Context
-- 🧠 **agentmemory MCP** — lifecycle hooks persist and recall compressed, per-agent context across sessions
-- 📋 **`context/brief.md`** — shared scratchpad holding handoff state between agents
-- 📐 **`context/decisions.md`** — the permanent ADR store (24 records)
-- 🔁 **`context/patterns.md`** — reusable patterns discovered during development (19 entries)
+- **agentmemory MCP** — lifecycle hooks persist and recall compressed, per-agent context across sessions
+- **`context/brief.md`** — shared scratchpad holding handoff state between agents
+- **`context/decisions.md`** — the permanent ADR store (24 records)
+- **`context/patterns.md`** — reusable patterns discovered during development (19 entries)
 
 ### Token Efficiency
 - Only the relevant compressed context is injected per agent, instead of loading the full `CLAUDE.md` every time
@@ -224,7 +258,7 @@ npm run dev
 
 The server starts on `http://localhost:3000`. Verify with `curl http://localhost:3000/health`.
 
-> 💡 Need a database fast? `docker run --name taskdb -e POSTGRES_USER=user -e POSTGRES_PASSWORD=password -e POSTGRES_DB=agentcorp -p 5432:5432 -d postgres:16-alpine`
+> Need a database fast? `docker run --name taskdb -e POSTGRES_USER=user -e POSTGRES_PASSWORD=password -e POSTGRES_DB=agentcorp -p 5432:5432 -d postgres:16-alpine`
 
 ### Install the Agent System (optional)
 
