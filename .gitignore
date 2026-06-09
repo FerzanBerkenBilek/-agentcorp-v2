@@ -6,6 +6,9 @@ coverage/
 agentcorp.db
 agentcorp.db-wal
 agentcorp.db-shm
+# Agent context (session-specific, not for version control)
 context/brief.md
 context/decisions.md
 context/patterns.md
+# agentmemory local storage
+.agentmemory/
