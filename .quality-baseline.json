@@ -1,0 +1,267 @@
+{
+  "generated": "2026-06-10T15:56:26Z",
+  "version": "1.1.0",
+  "coverage": {
+    "line_pct": 98.74,
+    "branch_pct": 95.0,
+    "function_pct": 98.17,
+    "threshold_line": 90,
+    "threshold_branch": 85,
+    "note": "Degradation below threshold = P1 finding"
+  },
+  "complexity": {
+    "files": [
+      {
+        "file": "src/test/fake-prisma.ts",
+        "complexity_points": 64,
+        "lines": 403,
+        "risk": "MEDIUM"
+      },
+      {
+        "file": "src/shared/url-safety.ts",
+        "complexity_points": 57,
+        "lines": 301,
+        "risk": "MEDIUM"
+      },
+      {
+        "file": "src/auth/auth.service.ts",
+        "complexity_points": 22,
+        "lines": 212,
+        "risk": "LOW"
+      },
+      {
+        "file": "src/tasks/tasks.repository.ts",
+        "complexity_points": 18,
+        "lines": 125,
+        "risk": "LOW"
+      },
+      {
+        "file": "src/tasks/tasks.service.ts",
+        "complexity_points": 17,
+        "lines": 158,
+        "risk": "LOW"
+      },
+      {
+        "file": "src/urls/urls.service.ts",
+        "complexity_points": 15,
+        "lines": 131,
+        "risk": "LOW"
+      },
+      {
+        "file": "src/shared/csrf.ts",
+        "complexity_points": 12,
+        "lines": 86,
+        "risk": "LOW"
+      },
+      {
+        "file": "src/tasks/tasks.policy.ts",
+        "complexity_points": 12,
+        "lines": 62,
+        "risk": "LOW"
+      },
+      {
+        "file": "src/shared/jwt.ts",
+        "complexity_points": 9,
+        "lines": 84,
+        "risk": "LOW"
+      },
+      {
+        "file": "src/users/users.repository.ts",
+        "complexity_points": 8,
+        "lines": 79,
+        "risk": "LOW"
+      },
+      {
+        "file": "src/shared/audit.ts",
+        "complexity_points": 7,
+        "lines": 58,
+        "risk": "LOW"
+      },
+      {
+        "file": "src/shared/error-handler.ts",
+        "complexity_points": 7,
+        "lines": 83,
+        "risk": "LOW"
+      },
+      {
+        "file": "src/auth/auth.routes.ts",
+        "complexity_points": 6,
+        "lines": 137,
+        "risk": "LOW"
+      },
+      {
+        "file": "src/shared/auth-context.ts",
+        "complexity_points": 6,
+        "lines": 58,
+        "risk": "LOW"
+      },
+      {
+        "file": "src/urls/urls.policy.ts",
+        "complexity_points": 6,
+        "lines": 40,
+        "risk": "LOW"
+      },
+      {
+        "file": "src/shared/errors.ts",
+        "complexity_points": 5,
+        "lines": 121,
+        "risk": "LOW"
+      },
+      {
+        "file": "src/shared/prisma.ts",
+        "complexity_points": 5,
+        "lines": 34,
+        "risk": "LOW"
+      },
+      {
+        "file": "src/config.ts",
+        "complexity_points": 4,
+        "lines": 88,
+        "risk": "LOW"
+      },
+      {
+        "file": "src/shared/logger.ts",
+        "complexity_points": 4,
+        "lines": 60,
+        "risk": "LOW"
+      },
+      {
+        "file": "src/auth/token-reuse.error.ts",
+        "complexity_points": 3,
+        "lines": 47,
+        "risk": "LOW"
+      },
+      {
+        "file": "src/shared/http.ts",
+        "complexity_points": 3,
+        "lines": 60,
+        "risk": "LOW"
+      },
+      {
+        "file": "src/urls/urls.repository.ts",
+        "complexity_points": 3,
+        "lines": 70,
+        "risk": "LOW"
+      },
+      {
+        "file": "src/urls/urls.routes.ts",
+        "complexity_points": 3,
+        "lines": 123,
+        "risk": "LOW"
+      },
+      {
+        "file": "src/app.ts",
+        "complexity_points": 2,
+        "lines": 132,
+        "risk": "LOW"
+      },
+      {
+        "file": "src/auth/auth.repository.ts",
+        "complexity_points": 2,
+        "lines": 70,
+        "risk": "LOW"
+      },
+      {
+        "file": "src/auth/auth.schemas.ts",
+        "complexity_points": 2,
+        "lines": 53,
+        "risk": "LOW"
+      },
+      {
+        "file": "src/shared/short-code.ts",
+        "complexity_points": 2,
+        "lines": 35,
+        "risk": "LOW"
+      },
+      {
+        "file": "src/shared/validate.ts",
+        "complexity_points": 2,
+        "lines": 26,
+        "risk": "LOW"
+      },
+      {
+        "file": "src/urls/urls.schemas.ts",
+        "complexity_points": 2,
+        "lines": 34,
+        "risk": "LOW"
+      },
+      {
+        "file": "src/server.ts",
+        "complexity_points": 1,
+        "lines": 34,
+        "risk": "LOW"
+      },
+      {
+        "file": "src/shared/version.ts",
+        "complexity_points": 1,
+        "lines": 22,
+        "risk": "LOW"
+      },
+      {
+        "file": "src/tasks/tasks.routes.ts",
+        "complexity_points": 1,
+        "lines": 110,
+        "risk": "LOW"
+      },
+      {
+        "file": "src/tasks/tasks.schemas.ts",
+        "complexity_points": 1,
+        "lines": 67,
+        "risk": "LOW"
+      },
+      {
+        "file": "src/test/setup.ts",
+        "complexity_points": 1,
+        "lines": 29,
+        "risk": "LOW"
+      },
+      {
+        "file": "src/users/users.routes.ts",
+        "complexity_points": 1,
+        "lines": 38,
+        "risk": "LOW"
+      },
+      {
+        "file": "src/users/users.schemas.ts",
+        "complexity_points": 1,
+        "lines": 30,
+        "risk": "LOW"
+      }
+    ],
+    "thresholds": {
+      "complexity_points_per_file": {
+        "LOW": "0-30",
+        "MEDIUM": "31-70",
+        "HIGH": "71+"
+      },
+      "lines_per_file": {
+        "acceptable": 300,
+        "warning": 500,
+        "critical": 700
+      }
+    }
+  },
+  "source_files": {
+    "total": 36,
+    "test_files": 13,
+    "avg_lines": 91.7
+  },
+  "known_debt": [
+    {
+      "file": "src/users/users.routes.ts + src/users/users.schemas.ts",
+      "issue": "users module under-tested: users.routes.ts 81.1% line (29-35 uncovered), users.schemas.ts 72.4% line / 0% functions (22-29 uncovered). Was explicitly out of QA scope for the task-management feature.",
+      "severity": "P2",
+      "accepted_date": "2026-06-08",
+      "resolution_plan": "Add GET /users/me unit+integration tests next time users module is touched"
+    },
+    {
+      "file": "src/shared/url-safety.ts",
+      "issue": "Line ~169 \"return false\" fall-through (non-blocked non-mapped IPv6) uncovered. Reachable only by a public bare-IPv6 literal; quality-lead assessed as not load-bearing.",
+      "severity": "P3",
+      "accepted_date": "2026-06-09",
+      "resolution_plan": "Cover opportunistically if a bare-IPv6 accept case is ever added to the reject/accept matrix"
+    }
+  ],
+  "last_updated": "2026-06-10T15:56:26Z",
+  "updated_by": "GEL-5"
+}

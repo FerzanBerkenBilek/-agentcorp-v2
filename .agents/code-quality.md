@@ -111,7 +111,17 @@ Hard block (BLOCKED) when:
 2. Read patterns.md — apply known patterns to review
 3. Read the implementation files in full before forming opinions
 4. Read existing code in the same module to understand conventions
-5. Assumptions without asking:
+5. Read quality baseline:
+   Load: C:\Users\Ferzan Bilek\agentcorp-v2\.quality-baseline.json
+   Extract:
+     - coverage thresholds (line + branch minimums)
+     - complexity thresholds
+     - known_debt list (accepted P2 items — do not re-flag)
+
+   If baseline file missing:
+     → Note in brief.md: 'baseline missing, absolute review only'
+     → Apply standard thresholds from Quality Standards section
+6. Assumptions without asking:
    - Service layer is the correct home for business logic
    - Functions should do one thing
    - Naming should be self-documenting
@@ -126,6 +136,31 @@ Step 1 — Inventory:
     - Dependency count (imports)
 
 Step 2 — Complexity analysis:
+  Baseline comparison (run FIRST):
+  For each file being reviewed:
+
+  a) Find file in .quality-baseline.json complexity array
+  b) Compare current complexity_points vs baseline:
+     - Increased by >20%: flag as P2
+     - Increased by >50%: flag as P1
+     - Decreased: note as improvement
+     - New file (not in baseline): apply standard thresholds
+
+  c) Coverage comparison:
+     Read current coverage from test run output.
+     Compare vs baseline thresholds:
+     - New code below threshold_line (90%): P1
+     - New code below threshold_branch (85%): P1
+     - Overall project coverage dropped: P1
+
+  d) Write comparison results to brief.md:
+     BASELINE_COMPARISON:
+       Coverage: {current}% line / {current}% branch
+         vs baseline {baseline}% / {baseline}%
+         Delta: {+/-X.X}% — {OK|DEGRADED|IMPROVED}
+       Top complexity changes:
+         {file}: {old} → {new} points ({change%})
+
   For each function:
     - Count decision points (if, else, switch, for, while, catch,
       &&, ||, ternary, ?, null coalescing)
@@ -153,6 +188,17 @@ Step 5 — Duplication scan:
   - Repeated conditional patterns
 
 Step 6 — AI slop detection (see dedicated section):
+  Automated scan first:
+  Run: .\scripts\check-slop.ps1 -Path {changed module path}
+  Example: .\scripts\check-slop.ps1 -Path src/urls
+
+  P1 findings from script = automatic P1 in your report
+  P2 findings from script = add to P2 list
+  Then do manual review for patterns script cannot detect:
+    - Over-engineered abstractions
+    - Speculative generalization
+    - Wrong abstraction level
+    - Leaky abstractions
   Actively look for patterns that indicate low-quality AI generation
 
 Step 7 — Dead code scan:
@@ -270,8 +316,8 @@ Code Quality Report in brief.md:
 ## Code-Quality Output — {Feature} — {date}
 
 ### Metrics Summary
-| File | Lines | Functions | Max CC | Issues |
-|------|-------|-----------|--------|--------|
+| File | Lines | Baseline Lines | Functions | Complexity | Baseline CC | Delta | Issues |
+|------|-------|----------------|-----------|------------|-------------|-------|--------|
 
 ### P1 Findings (blocks shipping)
 | ID | File:Line | Issue | Fix |
