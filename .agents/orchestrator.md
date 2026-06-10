@@ -121,6 +121,26 @@ Step 1 — Understand the task:
   - What is the scope? (new feature / bug fix / refactor / architecture)
   - What existing code is affected?
 
+  Security Trigger Check (run for EVERY task):
+    Scan the task description for security trigger keywords
+    (see CLAUDE.md Security Gate Rules).
+
+    If ANY trigger keyword found:
+      → Add security-engineer to Phase 1 (parallel with
+        architect/data-lead if possible)
+      → Mark brief.md: SECURITY_REVIEW: REQUIRED
+      → Do NOT start implementation phase until
+        security-engineer receipt STATUS = DONE
+
+    If NO trigger keyword found:
+      → Mark brief.md: SECURITY_REVIEW: SKIPPED
+      → Reason must be explicit: 'no trigger keywords,
+        docs-only change' or 'pure refactor, no logic change'
+      → quality-lead will verify this decision at gate
+
+    When in doubt: include security-engineer.
+    Cost of unnecessary review < cost of shipped vulnerability.
+
 Step 2 — Identify agents needed:
   For each requirement, which specialist owns it?
   Minimum viable agent set — do not over-involve.
@@ -177,6 +197,11 @@ Step 4 — Write brief.md with section tags (MANDATORY):
   | {phase} | {agent-name} | {tier} | PENDING | {task} |
   Update to DONE/BLOCKED after receipt is received.
 
+  Add security status header after Goal section:
+  SECURITY_REVIEW: {REQUIRED|SKIPPED}
+  SECURITY_REASON: {why required or why skipped}
+  SECURITY_STATUS: {PENDING|DONE|BLOCKED}
+
 Step 5 — Execute phases:
   Call agents in planned order.
   After each phase: read brief.md to verify agents wrote outputs.
@@ -197,6 +222,34 @@ Step 5 — Execute phases:
   5. If brief.md has no receipt from an agent that was called:
      - Do NOT assume success
      - Re-invoke the agent or escalate
+
+  Receipt integrity checks:
+  When reading an agent's receipt, verify:
+
+  1. AGENT field matches the agent that was called
+     (if tech-lead receipt says AGENT: backend-dev → reject)
+
+  2. TIER field matches expected tier:
+     Tier 1: orchestrator only
+     Tier 2: tech-lead, ai-lead, quality-lead,
+             data-lead, frontend-lead
+     Tier 3: all others
+     (wrong tier in receipt → flag as anomaly)
+
+  3. STATUS is one of: DONE, BLOCKED, NEEDS_REVIEW, PENDING
+     Any other value → treat as BLOCKED
+
+  4. RECOMMENDED_NEXT (if present) must be a valid agent name
+     (not a made-up agent or a tier-1 agent)
+
+  5. If receipt was pre-created by orchestrator as PENDING
+     and agent filled it in:
+     Verify the AGENT name matches the pre-created block.
+
+  If ANY integrity check fails:
+    → Log anomaly to brief.md under orchestrator section
+    → Do NOT proceed with that agent's recommendations
+    → Escalate to user if critical path is affected
 
 Step 6 — Handle quality gate:
   If quality-lead returns FIX IT:

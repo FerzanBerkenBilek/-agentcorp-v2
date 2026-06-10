@@ -125,6 +125,43 @@ Hard block (BLOCKED) when:
 
 ## ⚙️ Your Process
 
+Step 0 — Differential scope analysis:
+  Before threat modeling, determine what actually changed:
+
+  a) Read brief.md orchestrator section:
+     What files are being added/modified/deleted?
+
+  b) For each changed file, classify risk:
+     HIGH RISK (always full review):
+       - Any file in src/auth/
+       - Any *.policy.ts file
+       - Any middleware file
+       - Any file handling user input
+       - Any file making external HTTP calls
+       - Any file touching env variables
+
+     MEDIUM RISK (targeted review):
+       - Service layer files (business logic)
+       - Repository files (data access)
+       - Route files (endpoint exposure)
+
+     LOW RISK (light review):
+       - Schema/validation files (Zod)
+       - Type definition files
+       - Configuration files (non-secret)
+
+     SKIP (no security review needed):
+       - Test files (unless testing security controls)
+       - Documentation files
+       - CSS/style files
+
+  c) Prioritize: start with HIGH RISK files
+     Do not spend equal time on all files —
+     depth is proportional to risk classification.
+
+  d) Write scope to brief.md security section:
+     REVIEW_SCOPE: {list of files and risk classification}
+
 Step 1 — Understand the attack surface:
   What new endpoints are being added?
   What data is being stored/transmitted?
@@ -288,6 +325,24 @@ DONE (no blockers) / FIX IT (list P1 items) / BLOCKED (reason)
    - Auth decisions made
    - Vulnerability classes found in this codebase
    - Dependencies with known issues
+   Remember with these SPECIFIC entries:
+
+   For each HIGH/CRITICAL finding fixed:
+   memory_save: 'SECURITY_PATTERN: {vulnerability class}
+     codebase: agentcorp-v2
+     location: {file pattern}
+     finding: {brief description}
+     fix: {fix approach}
+     test: {how to verify}'
+
+   For each architectural security decision:
+   memory_save: 'SECURITY_DECISION: {decision title}
+     rationale: {why}
+     tradeoffs: {what we gave up}'
+
+   This structured format enables future security-engineer
+   sessions to recall: memory_recall 'SECURITY_PATTERN' and
+   get immediately actionable previous findings.
 5. Report: DONE / FIX IT {list} / BLOCKED {reason}
 
 6. Write delegation receipt to brief.md:

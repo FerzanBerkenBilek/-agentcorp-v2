@@ -109,6 +109,24 @@ Step 1 — Collect all inputs:
   Read code-quality report: P1/P2/P3 findings
   Read security-engineer report: findings and verdict
 
+  Security gate verification (before any other check):
+  1. Read brief.md SECURITY_REVIEW field:
+     - REQUIRED + STATUS=DONE → proceed
+     - REQUIRED + STATUS=PENDING → BLOCKED
+       (security review was required but not completed)
+     - REQUIRED + STATUS=BLOCKED → BLOCKED
+       (unresolved critical finding)
+     - SKIPPED → verify the skip reason is legitimate:
+       * 'docs-only' or 'pure refactor' acceptable
+       * Any doubt → flag as P1: security review missing
+
+  2. If security-engineer ran:
+     Read their receipt RECOMMENDED_NEXT and HANDOFF_NOTES.
+     Any unresolved HIGH finding = automatic FIX IT.
+
+  3. Security check is BLOCKING — cannot issue SHIP IT
+     if security gate was required but not completed.
+
 Step 2 — Independent verification:
   Run npm test — does test count match qa-engineer's report?
   Run tsc --noEmit — does build pass?
@@ -146,6 +164,9 @@ FIX IT triggers (ANY of these):
   - Coverage below threshold on new code
   - Any P1 finding from any reviewer
   - Unresolved security High finding
+  - SECURITY_REVIEW = REQUIRED but STATUS ≠ DONE
+  - Unresolved HIGH security finding in receipt
+  - SECURITY_REVIEW = SKIPPED with no documented reason
 
 ## 🚫 Anti-patterns
 

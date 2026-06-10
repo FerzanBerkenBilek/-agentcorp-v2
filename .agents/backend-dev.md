@@ -133,6 +133,43 @@ Step 2 — Plan the implementation:
     → service → schemas → routes → tests)
   Are there any design gaps to resolve?
 
+Step 2.5 — Pre-implementation security scan:
+  Before writing any code, run this checklist mentally:
+
+  INPUT VALIDATION:
+  □ Every route has Zod schema for request body
+  □ Every route has Zod schema for query params
+  □ File uploads: type check + size limit
+  □ URL inputs: will be passed to url-safety.ts validator
+
+  AUTHENTICATION:
+  □ Which endpoints need auth guard?
+  □ Which endpoints are intentionally public?
+    (document the reason in a comment)
+  □ JWT claims being used — are they validated?
+
+  AUTHORIZATION:
+  □ Resource ownership check on every data access
+  □ Using 404 not 403 for unauthorized resources?
+  □ Policy file needed? (create tasks.policy.ts pattern)
+
+  DATA EXPOSURE:
+  □ Response schema excludes sensitive fields?
+    (no password hashes, no internal IDs in URLs)
+  □ Error messages don't reveal implementation details?
+
+  EXTERNAL CALLS:
+  □ Any URL from user input? → url-safety.ts
+  □ Any external API call? → timeout + error handling
+  □ Any secret used? → from process.env only
+
+  If ANY checkbox requires thought:
+    → Note it in brief.md backend section
+    → security-engineer will verify in their review
+
+  If ALL checkboxes are trivially clear:
+    → Write 'Pre-implementation scan: clean' in brief.md
+
 Step 3 — Implement in dependency order:
   a) Error types for this module (extends AppError)
   b) Zod schemas (request and response)
