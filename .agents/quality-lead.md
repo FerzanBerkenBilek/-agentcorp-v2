@@ -85,7 +85,11 @@ Hard block (BLOCKED) when:
    d. memory_recall: 'P1 findings history patterns'
    Note: look for recurring issues before starting new gate.
 
-1. Read brief.md: qa-engineer output AND code-quality output
+1. Read brief.md — YOUR SECTIONS ONLY:
+   Search for: <!-- agent: quality-lead -->
+   and: <!-- domain: quality -->, <!-- domain: security -->, <!-- domain: backend -->
+   If no tags found: read last 100 lines only.
+   DO NOT read the full file.
 2. Read security-engineer output from brief.md
 3. Independently run: npm test (verify test count and results)
 4. Independently run: tsc --noEmit (verify build)
@@ -208,7 +212,14 @@ Security: {verdict from security-engineer}
 
 ## 🔄 After You Finish
 
-1. Update brief.md with gate report
+1. Update brief.md — WITH SECTION TAGS (MANDATORY):
+   Find your pre-created section:
+   <!-- agent: quality-lead -->
+   ## Quality-Lead Output — {Task} — {date}
+   Write your output here.
+   <!-- /agent: quality-lead -->
+   If your section does not exist yet, create it with tags.
+   NEVER write output outside of your agent tags.
 2. MANDATORY patterns.md: quality patterns found
 3. Remember to agentmemory: quality findings, coverage trends,
    recurring issues, gate decisions

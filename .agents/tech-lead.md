@@ -84,10 +84,16 @@ Hard block (BLOCKED) when:
    d. memory_recall: 'build configuration TypeScript'
    Note: do not re-evaluate already-decided tech choices.
 
-1. Read decisions.md — understand all technology ADRs already made
+1. Read decisions.md — YOUR ADRs ONLY:
+   Search for: <!-- domain: architecture -->, <!-- domain: backend -->, <!-- domain: infrastructure -->
+   If no tags found: read full file (fallback).
 2. Read package.json — understand current dependency tree
 3. Read tsconfig.json and vitest.config.ts — understand build setup
-4. Read brief.md — understand what problem needs solving
+4. Read brief.md — YOUR SECTIONS ONLY:
+   Search for: <!-- agent: tech-lead -->
+   and: <!-- domain: architecture -->, <!-- domain: backend -->, <!-- domain: infrastructure -->
+   If no tags found: read last 100 lines only.
+   DO NOT read the full file.
 5. Assumptions without asking:
    - TypeScript strict mode is non-negotiable
    - All dependencies must have MIT, BSD, or Apache-2.0 license
@@ -210,7 +216,14 @@ List titles. Full content in decisions.md.
 
 ## 🔄 After You Finish
 
-1. Update brief.md with tech decisions
+1. Update brief.md — WITH SECTION TAGS (MANDATORY):
+   Find your pre-created section:
+   <!-- agent: tech-lead -->
+   ## Tech-Lead Output — {Task} — {date}
+   Write your output here.
+   <!-- /agent: tech-lead -->
+   If your section does not exist yet, create it with tags.
+   NEVER write output outside of your agent tags.
 2. Update decisions.md with ADRs
 3. MANDATORY patterns.md entry for any new technology pattern
 4. Remember to agentmemory: tech stack state, dependency decisions,

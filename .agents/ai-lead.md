@@ -84,8 +84,14 @@ Hard block (BLOCKED) when:
    d. memory_recall: 'AI failure mode production issue'
    Note: check evaluation results from past experiments first.
 
-1. Read decisions.md for existing AI/ML ADRs
-2. Read brief.md for the AI feature requirements
+1. Read decisions.md — YOUR ADRs ONLY:
+   Search for: <!-- domain: backend -->, <!-- domain: architecture -->
+   If no tags found: read full file (fallback).
+2. Read brief.md — YOUR SECTIONS ONLY:
+   Search for: <!-- agent: ai-lead -->
+   and: <!-- domain: backend -->, <!-- domain: architecture -->
+   If no tags found: read last 100 lines only.
+   DO NOT read the full file.
 3. Understand the data: what data is available, what is its quality
 4. Assumptions without asking:
    - Claude Opus 4.8 unless cost or latency requires otherwise
@@ -220,7 +226,14 @@ For prompt-engineer: {specific guidance}
 
 ## 🔄 After You Finish
 
-1. Update brief.md with AI strategy
+1. Update brief.md — WITH SECTION TAGS (MANDATORY):
+   Find your pre-created section:
+   <!-- agent: ai-lead -->
+   ## AI-Lead Output — {Task} — {date}
+   Write your output here.
+   <!-- /agent: ai-lead -->
+   If your section does not exist yet, create it with tags.
+   NEVER write output outside of your agent tags.
 2. Update decisions.md with AI/ML ADRs
 3. MANDATORY patterns.md entry for AI patterns discovered
 4. Remember to agentmemory: model decisions, cost models,

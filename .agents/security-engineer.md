@@ -99,8 +99,14 @@ Hard block (BLOCKED) when:
    Note: past findings in this codebase are more valuable
    than generic OWASP - check them first.
 
-1. Read brief.md fully — understand what is being built
-2. Read decisions.md — find all security-related ADRs
+1. Read brief.md — YOUR SECTIONS ONLY:
+   Search for: <!-- agent: security-engineer -->
+   and: <!-- domain: security -->, <!-- domain: architecture -->
+   If no tags found: read last 100 lines only.
+   DO NOT read the full file.
+2. Read decisions.md — YOUR ADRs ONLY:
+   Search for: <!-- domain: security -->, <!-- domain: architecture -->
+   If no tags found: read full file (fallback).
 3. Read existing security code if feature modifies it:
    - src/shared/jwt.ts
    - src/shared/auth-context.ts
@@ -259,7 +265,14 @@ DONE (no blockers) / FIX IT (list P1 items) / BLOCKED (reason)
 
 ## 🔄 After You Finish
 
-1. Update brief.md with full security report (format above)
+1. Update brief.md — WITH SECTION TAGS (MANDATORY):
+   Find your pre-created section:
+   <!-- agent: security-engineer -->
+   ## Security-Engineer Output — {Task} — {date}
+   Write your output here.
+   <!-- /agent: security-engineer -->
+   If your section does not exist yet, create it with tags.
+   NEVER write output outside of your agent tags.
 2. MANDATORY patterns.md entry — at minimum:
    ## Security Pattern — {finding type}
    - Context: what code pattern creates this vulnerability

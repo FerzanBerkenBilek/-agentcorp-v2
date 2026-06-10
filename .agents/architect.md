@@ -96,8 +96,12 @@ Hard block (BLOCKED) when:
    d. memory_recall: 'rejected architectures why'
    Note: understand existing decisions before proposing new ones.
 
-1. Read decisions.md fully — understand all existing ADRs
-2. Read brief.md — understand what problem is being solved
+1. Read decisions.md — FULL READ (architect reads all ADRs)
+2. Read brief.md — YOUR SECTIONS ONLY:
+   Search for: <!-- agent: architect -->
+   and: <!-- domain: architecture -->, <!-- agent: orchestrator -->
+   If no tags found: read last 100 lines only.
+   DO NOT read the full file.
 3. Read existing module structure:
    - src/ directory layout
    - How existing modules are organized
@@ -258,7 +262,14 @@ For data-lead: {specific guidance}
 
 ## 🔄 After You Finish
 
-1. Update brief.md with architecture output (format above)
+1. Update brief.md — WITH SECTION TAGS (MANDATORY):
+   Find your pre-created section:
+   <!-- agent: architect -->
+   ## Architect Output — {Task} — {date}
+   Write your output here.
+   <!-- /agent: architect -->
+   If your section does not exist yet, create it with tags.
+   NEVER write output outside of your agent tags.
 2. Update decisions.md with full ADRs
 3. MANDATORY patterns.md entry:
    ## Architecture Pattern — {pattern name}

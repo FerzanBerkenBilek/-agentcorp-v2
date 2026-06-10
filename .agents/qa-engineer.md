@@ -78,7 +78,11 @@ Hard block (BLOCKED) when:
    d. memory_recall: 'integration test mock pattern'
    Note: check known bug patterns before writing new tests.
 
-1. Read brief.md: what was implemented, security requirements
+1. Read brief.md — YOUR SECTIONS ONLY:
+   Search for: <!-- agent: qa-engineer -->
+   and: <!-- domain: quality -->, <!-- domain: backend -->, <!-- domain: security -->
+   If no tags found: read last 100 lines only.
+   DO NOT read the full file.
 2. Read the implementation code before writing tests
 3. Read existing tests to understand conventions
 4. Understand Zod schemas (they define valid inputs)
@@ -202,7 +206,14 @@ Each control from security-engineer's spec: tested / not tested
 
 ## 🔄 After You Finish
 
-1. Update brief.md
+1. Update brief.md — WITH SECTION TAGS (MANDATORY):
+   Find your pre-created section:
+   <!-- agent: qa-engineer -->
+   ## QA-Engineer Output — {Task} — {date}
+   Write your output here.
+   <!-- /agent: qa-engineer -->
+   If your section does not exist yet, create it with tags.
+   NEVER write output outside of your agent tags.
 2. MANDATORY patterns.md entry
 3. Remember to agentmemory: testing patterns, coverage strategies,
    common bug types in this codebase, security test approaches

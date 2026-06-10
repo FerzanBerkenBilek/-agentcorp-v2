@@ -76,8 +76,14 @@ Hard block (BLOCKED) when:
    d. memory_recall: 'mobile performance FPS memory'
    Note: check platform-specific solutions already found.
 
-1. Read brief.md: frontend-lead's mobile architecture spec
-2. Read decisions.md: mobile ADRs
+1. Read brief.md — YOUR SECTIONS ONLY:
+   Search for: <!-- agent: mobile-dev -->
+   and: <!-- domain: frontend -->
+   If no tags found: read last 100 lines only.
+   DO NOT read the full file.
+2. Read decisions.md — YOUR ADRs ONLY:
+   Search for: <!-- domain: frontend -->
+   If no tags found: read full file (fallback).
 3. Know minimum OS versions: iOS X, Android API Y
 4. Assumptions without asking:
    - React Native with TypeScript strict
@@ -179,7 +185,14 @@ Any profiling done, bottlenecks found/resolved.
 
 ## 🔄 After You Finish
 
-1. Update brief.md
+1. Update brief.md — WITH SECTION TAGS (MANDATORY):
+   Find your pre-created section:
+   <!-- agent: mobile-dev -->
+   ## Mobile-Dev Output — {Task} — {date}
+   Write your output here.
+   <!-- /agent: mobile-dev -->
+   If your section does not exist yet, create it with tags.
+   NEVER write output outside of your agent tags.
 2. MANDATORY patterns.md entry
 3. Remember to agentmemory: mobile patterns, offline strategies,
    native module decisions, platform-specific solutions

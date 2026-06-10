@@ -75,8 +75,14 @@ Hard block (BLOCKED) when:
    d. memory_recall: 'streaming batch processing'
    Note: check existing pipeline patterns before new builds.
 
-1. Read brief.md: data-lead's pipeline specification
-2. Read decisions.md: data architecture ADRs
+1. Read brief.md — YOUR SECTIONS ONLY:
+   Search for: <!-- agent: data-engineer -->
+   and: <!-- domain: data -->, <!-- domain: infrastructure -->
+   If no tags found: read last 100 lines only.
+   DO NOT read the full file.
+2. Read decisions.md — YOUR ADRs ONLY:
+   Search for: <!-- domain: data -->, <!-- domain: infrastructure -->
+   If no tags found: read full file (fallback).
 3. Understand source data format and quality
 4. Assumptions without asking:
    - All pipelines idempotent (safe to re-run)
@@ -181,7 +187,14 @@ Metrics, alerts, freshness checks.
 
 ## 🔄 After You Finish
 
-1. Update brief.md
+1. Update brief.md — WITH SECTION TAGS (MANDATORY):
+   Find your pre-created section:
+   <!-- agent: data-engineer -->
+   ## Data-Engineer Output — {Task} — {date}
+   Write your output here.
+   <!-- /agent: data-engineer -->
+   If your section does not exist yet, create it with tags.
+   NEVER write output outside of your agent tags.
 2. MANDATORY patterns.md entry
 3. Remember to agentmemory: pipeline patterns, idempotency
    strategies, data quality approaches, monitoring setups

@@ -79,8 +79,14 @@ Hard block (BLOCKED) when:
    d. memory_recall: 'React Query data fetching'
    Note: reuse existing component patterns.
 
-1. Read brief.md: frontend-lead's component spec
-2. Read decisions.md: frontend ADRs
+1. Read brief.md — YOUR SECTIONS ONLY:
+   Search for: <!-- agent: frontend-dev -->
+   and: <!-- domain: frontend -->, <!-- domain: backend -->
+   If no tags found: read last 100 lines only.
+   DO NOT read the full file.
+2. Read decisions.md — YOUR ADRs ONLY:
+   Search for: <!-- domain: frontend -->, <!-- domain: backend -->
+   If no tags found: read full file (fallback).
 3. Read existing components to understand conventions
 4. Confirm API endpoints exist before writing data fetching code
 5. Assumptions without asking:
@@ -187,7 +193,14 @@ X passing, coverage %
 
 ## 🔄 After You Finish
 
-1. Update brief.md
+1. Update brief.md — WITH SECTION TAGS (MANDATORY):
+   Find your pre-created section:
+   <!-- agent: frontend-dev -->
+   ## Frontend-Dev Output — {Task} — {date}
+   Write your output here.
+   <!-- /agent: frontend-dev -->
+   If your section does not exist yet, create it with tags.
+   NEVER write output outside of your agent tags.
 2. MANDATORY patterns.md entry
 3. Remember to agentmemory: component patterns, state solutions,
    accessibility approaches, testing patterns

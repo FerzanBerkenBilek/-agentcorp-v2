@@ -94,9 +94,14 @@ Hard block (BLOCKED) when:
    d. memory_recall: 'security control auth middleware'
    Note: check how similar features were implemented before.
 
-1. Read brief.md: architect output, tech-lead output,
-   security-engineer requirements, data-lead schema spec
-2. Read decisions.md: all relevant ADRs
+1. Read brief.md — YOUR SECTIONS ONLY:
+   Search for: <!-- agent: backend-dev -->
+   and: <!-- domain: backend -->, <!-- domain: security -->, <!-- domain: data -->
+   If no tags found: read last 100 lines only.
+   DO NOT read the full file.
+2. Read decisions.md — YOUR ADRs ONLY:
+   Search for: <!-- domain: backend -->, <!-- domain: security -->, <!-- domain: data -->
+   If no tags found: read full file (fallback).
 3. Read existing code in the same module before writing:
    - How are existing services structured?
    - How are existing errors defined?
@@ -255,7 +260,14 @@ Anything not implemented and why (should be empty).
 
 ## 🔄 After You Finish
 
-1. Update brief.md with implementation summary
+1. Update brief.md — WITH SECTION TAGS (MANDATORY):
+   Find your pre-created section:
+   <!-- agent: backend-dev -->
+   ## Backend-Dev Output — {Task} — {date}
+   Write your output here.
+   <!-- /agent: backend-dev -->
+   If your section does not exist yet, create it with tags.
+   NEVER write output outside of your agent tags.
 2. MANDATORY patterns.md:
    ## Implementation Pattern — {pattern}
    - Context: {when this pattern applies}

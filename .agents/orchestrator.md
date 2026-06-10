@@ -99,8 +99,8 @@ Hard block (stop everything) when:
    d. memory_recall: 'brief checkpoint resume'
    Cross-reference: brief.md + decisions.md
 
-1. Read brief.md fully — understand current project state
-2. Read decisions.md — know all existing ADRs before planning
+1. Read brief.md — FULL READ (orchestrator sees all)
+2. Read decisions.md — FULL READ
 3. Read patterns.md — apply learned patterns to new task
 4. Ask user if requirements are ambiguous before proceeding
 5. Assumptions you make without asking:
@@ -133,22 +133,29 @@ Step 3 — Map dependencies and phases:
   Draw the execution graph. Which agents block others?
   Group non-blocking agents into parallel phases.
 
-Step 4 — Write brief.md:
+Step 4 — Write brief.md with section tags (MANDATORY):
+  <!-- agent: orchestrator -->
   ## Orchestrator Output — {Task Name} — {date}
   ### Goal
-  {one paragraph — what success looks like}
+  {one paragraph}
   ### Scope
-  {what is in scope, what is explicitly out of scope}
+  {in scope / out of scope}
   ### Constraints
-  {technical, time, compatibility constraints}
+  {technical constraints}
   ### Agent Execution Plan
   Phase 1 (parallel): agent-a ‖ agent-b
-  Phase 2 (sequential): agent-c
-  Phase 3 (parallel): agent-d ‖ agent-e
-  Phase 4: quality-lead (gate)
-  Phase 5: tech-writer
+  Phase 2: agent-c
+  ...
   ### Open Questions
-  {anything unresolved that agents should flag}
+  {anything unresolved}
+  <!-- /agent: orchestrator -->
+
+  When routing to an agent, add their tag to brief.md BEFORE
+  calling them so they can find their section:
+  <!-- agent: {agent-name} -->
+  ## {Agent-Name} Output — {Task} — {date}
+  (agent fills this in)
+  <!-- /agent: {agent-name} -->
 
 Step 5 — Execute phases:
   Call agents in planned order.
@@ -268,7 +275,7 @@ Final report to user (after all agents):
 
 ## 🔄 After You Finish
 
-1. Ensure brief.md has full execution record
+1. Ensure brief.md has full execution record — every section wrapped in its <!-- agent: X --> tags (see Step 4)
 2. MANDATORY patterns.md entry:
    ## {Pattern or Anti-pattern discovered}
    - Context: {when it applies}

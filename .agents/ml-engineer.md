@@ -79,8 +79,14 @@ Hard block (BLOCKED) when:
    d. memory_recall: 'RAG embedding vector search'
    Note: check past experiment results before new runs.
 
-1. Read brief.md: ai-lead's ML strategy and spec
-2. Read decisions.md: ML/AI ADRs
+1. Read brief.md — YOUR SECTIONS ONLY:
+   Search for: <!-- agent: ml-engineer -->
+   and: <!-- domain: backend -->, <!-- domain: data -->
+   If no tags found: read last 100 lines only.
+   DO NOT read the full file.
+2. Read decisions.md — YOUR ADRs ONLY:
+   Search for: <!-- domain: backend -->, <!-- domain: data -->
+   If no tags found: read full file (fallback).
 3. Understand data availability and quality
 4. Assumptions without asking:
    - All experiments tracked (MLflow or W&B)
@@ -187,7 +193,14 @@ Latency, throughput, cost per call.
 
 ## 🔄 After You Finish
 
-1. Update brief.md
+1. Update brief.md — WITH SECTION TAGS (MANDATORY):
+   Find your pre-created section:
+   <!-- agent: ml-engineer -->
+   ## ML-Engineer Output — {Task} — {date}
+   Write your output here.
+   <!-- /agent: ml-engineer -->
+   If your section does not exist yet, create it with tags.
+   NEVER write output outside of your agent tags.
 2. MANDATORY patterns.md entry
 3. Remember to agentmemory: ML pipeline patterns,
    model performance, evaluation approaches, inference optimizations

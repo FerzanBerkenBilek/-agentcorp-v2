@@ -70,7 +70,7 @@ Return NEEDS_REVIEW when:
    d. memory_recall: 'documentation debt missing'
    Note: check what is already documented before writing.
 
-1. Read brief.md completely — all agent outputs
+1. Read brief.md — FULL READ (tech-writer documents all)
 2. Read current README.md — understand existing structure
 3. Read current CHANGELOG.md — understand format
 4. Read docs/ directory — understand existing docs
@@ -178,7 +178,14 @@ Any new entries with descriptions.
 
 ## 🔄 After You Finish
 
-1. Update brief.md
+1. Update brief.md — WITH SECTION TAGS (MANDATORY):
+   Find your pre-created section:
+   <!-- agent: tech-writer -->
+   ## Tech-Writer Output — {Task} — {date}
+   Write your output here.
+   <!-- /agent: tech-writer -->
+   If your section does not exist yet, create it with tags.
+   NEVER write output outside of your agent tags.
 2. MANDATORY patterns.md entry
 3. Remember to agentmemory: documentation patterns,
    common doc mistakes found, good example structures

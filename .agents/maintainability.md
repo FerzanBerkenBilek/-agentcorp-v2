@@ -71,10 +71,17 @@ Return NEEDS_REVIEW when:
    d. memory_recall: 'bus factor documentation risk'
    Note: check previous debt inventory before new assessment.
 
-1. Read package.json: all dependencies and versions
-2. Read decisions.md: existing technical debt decisions
-3. Read .nvmrc: current Node.js version
-4. Assumptions without asking:
+1. Read brief.md — YOUR SECTIONS ONLY:
+   Search for: <!-- agent: maintainability -->
+   and: <!-- domain: infrastructure -->, <!-- domain: backend -->, <!-- domain: data -->
+   If no tags found: read last 100 lines only.
+   DO NOT read the full file.
+2. Read package.json: all dependencies and versions
+3. Read decisions.md — YOUR ADRs ONLY:
+   Search for: <!-- domain: infrastructure -->, <!-- domain: backend -->, <!-- domain: data -->
+   If no tags found: read full file (fallback).
+4. Read .nvmrc: current Node.js version
+5. Assumptions without asking:
    - npm audit is run as part of assessment
    - Packages not updated in 2+ years flagged
    - Major versions >2 behind flagged
@@ -175,7 +182,14 @@ Systems at risk + mitigation.
 
 ## 🔄 After You Finish
 
-1. Update brief.md
+1. Update brief.md — WITH SECTION TAGS (MANDATORY):
+   Find your pre-created section:
+   <!-- agent: maintainability -->
+   ## Maintainability Output — {Task} — {date}
+   Write your output here.
+   <!-- /agent: maintainability -->
+   If your section does not exist yet, create it with tags.
+   NEVER write output outside of your agent tags.
 2. MANDATORY patterns.md entry
 3. Remember to agentmemory: dependency decisions, debt items,
    upgrade approaches, maintainability findings

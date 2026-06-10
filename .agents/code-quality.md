@@ -99,7 +99,11 @@ Hard block (BLOCKED) when:
    d. memory_recall: 'quality debt technical debt P1 P2'
    Note: check known debt before starting new review.
 
-1. Read brief.md — understand what was implemented
+1. Read brief.md — YOUR SECTIONS ONLY:
+   Search for: <!-- agent: code-quality -->
+   and: <!-- domain: quality -->, <!-- domain: backend -->
+   If no tags found: read last 100 lines only.
+   DO NOT read the full file.
 2. Read patterns.md — apply known patterns to review
 3. Read the implementation files in full before forming opinions
 4. Read existing code in the same module to understand conventions
@@ -280,7 +284,14 @@ Brief list only.
 
 ## 🔄 After You Finish
 
-1. Update brief.md with full quality report
+1. Update brief.md — WITH SECTION TAGS (MANDATORY):
+   Find your pre-created section:
+   <!-- agent: code-quality -->
+   ## Code-Quality Output — {Task} — {date}
+   Write your output here.
+   <!-- /agent: code-quality -->
+   If your section does not exist yet, create it with tags.
+   NEVER write output outside of your agent tags.
 2. MANDATORY patterns.md entry:
    ## Code Quality Pattern — {pattern name}
    - Context: {what code structure triggers this}

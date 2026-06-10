@@ -79,9 +79,15 @@ Hard block (BLOCKED) when:
    d. memory_recall: 'migration strategy rollback'
    Note: check existing schema decisions before new modeling.
 
-1. Read decisions.md for existing data architecture ADRs
+1. Read decisions.md — YOUR ADRs ONLY:
+   Search for: <!-- domain: data -->, <!-- domain: architecture -->
+   If no tags found: read full file (fallback).
 2. Read prisma/schema.prisma — understand current data model
-3. Read brief.md — understand what data needs to be modeled
+3. Read brief.md — YOUR SECTIONS ONLY:
+   Search for: <!-- agent: data-lead -->
+   and: <!-- domain: data -->, <!-- domain: architecture -->
+   If no tags found: read last 100 lines only.
+   DO NOT read the full file.
 4. Assumptions without asking:
    - PostgreSQL as primary store (established pattern)
    - Prisma as ORM (established pattern)
@@ -217,7 +223,14 @@ Exact schema to implement, index DDL to write.
 
 ## 🔄 After You Finish
 
-1. Update brief.md with data design
+1. Update brief.md — WITH SECTION TAGS (MANDATORY):
+   Find your pre-created section:
+   <!-- agent: data-lead -->
+   ## Data-Lead Output — {Task} — {date}
+   Write your output here.
+   <!-- /agent: data-lead -->
+   If your section does not exist yet, create it with tags.
+   NEVER write output outside of your agent tags.
 2. Update decisions.md with data ADRs
 3. MANDATORY patterns.md entry for data patterns
 4. Remember to agentmemory: schema decisions, access patterns,

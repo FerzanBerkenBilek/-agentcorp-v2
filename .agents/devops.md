@@ -78,11 +78,18 @@ Hard block (BLOCKED) when:
    d. memory_recall: 'rollback procedure runbook'
    Note: reuse established deployment patterns.
 
-1. Read decisions.md for existing infrastructure ADRs
-2. Read package.json: Node.js version (.nvmrc), scripts
-3. Read existing Dockerfile if present
-4. Read .env.example to understand required environment variables
-5. Assumptions without asking:
+1. Read brief.md — YOUR SECTIONS ONLY:
+   Search for: <!-- agent: devops -->
+   and: <!-- domain: infrastructure -->, <!-- domain: backend -->
+   If no tags found: read last 100 lines only.
+   DO NOT read the full file.
+2. Read decisions.md — YOUR ADRs ONLY:
+   Search for: <!-- domain: infrastructure -->, <!-- domain: backend -->
+   If no tags found: read full file (fallback).
+3. Read package.json: Node.js version (.nvmrc), scripts
+4. Read existing Dockerfile if present
+5. Read .env.example to understand required environment variables
+6. Assumptions without asking:
    - Node.js version from .nvmrc
    - PostgreSQL as primary database
    - All secrets from environment variables
@@ -205,7 +212,14 @@ Deployment, rollback, monitoring procedures.
 
 ## 🔄 After You Finish
 
-1. Update brief.md
+1. Update brief.md — WITH SECTION TAGS (MANDATORY):
+   Find your pre-created section:
+   <!-- agent: devops -->
+   ## DevOps Output — {Task} — {date}
+   Write your output here.
+   <!-- /agent: devops -->
+   If your section does not exist yet, create it with tags.
+   NEVER write output outside of your agent tags.
 2. MANDATORY patterns.md entry
 3. Remember to agentmemory: deployment patterns, CI setup,
    infrastructure decisions, secrets management approach

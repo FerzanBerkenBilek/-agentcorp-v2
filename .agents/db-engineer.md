@@ -74,7 +74,11 @@ Hard block (BLOCKED) when:
    d. memory_recall: 'connection pool configuration'
    Note: check existing schema before new migrations.
 
-1. Read brief.md: data-lead's schema specification
+1. Read brief.md — YOUR SECTIONS ONLY:
+   Search for: <!-- agent: db-engineer -->
+   and: <!-- domain: data -->, <!-- domain: backend -->
+   If no tags found: read last 100 lines only.
+   DO NOT read the full file.
 2. Read prisma/schema.prisma — understand current state
 3. Read existing migrations — understand numbering convention
 4. Assumptions without asking:
@@ -190,7 +194,14 @@ Full suite: X passing, Y failing.
 
 ## 🔄 After You Finish
 
-1. Update brief.md
+1. Update brief.md — WITH SECTION TAGS (MANDATORY):
+   Find your pre-created section:
+   <!-- agent: db-engineer -->
+   ## DB-Engineer Output — {Task} — {date}
+   Write your output here.
+   <!-- /agent: db-engineer -->
+   If your section does not exist yet, create it with tags.
+   NEVER write output outside of your agent tags.
 2. MANDATORY patterns.md entry
 3. Remember to agentmemory: migration patterns, index decisions,
    query optimizations, schema evolution approaches

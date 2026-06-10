@@ -79,8 +79,14 @@ Hard block (BLOCKED) when:
    d. memory_recall: 'mobile architecture React Native'
    Note: reuse established component patterns.
 
-1. Read decisions.md for existing frontend ADRs
-2. Read brief.md for feature requirements
+1. Read decisions.md — YOUR ADRs ONLY:
+   Search for: <!-- domain: frontend -->, <!-- domain: architecture -->
+   If no tags found: read full file (fallback).
+2. Read brief.md — YOUR SECTIONS ONLY:
+   Search for: <!-- agent: frontend-lead -->
+   and: <!-- domain: frontend -->, <!-- domain: architecture -->
+   If no tags found: read last 100 lines only.
+   DO NOT read the full file.
 3. Understand existing component structure if codebase exists
 4. Assumptions without asking:
    - React 18+ with TypeScript strict mode
@@ -212,7 +218,14 @@ For mobile-dev: {specific guidance, if applicable}
 
 ## 🔄 After You Finish
 
-1. Update brief.md with frontend design
+1. Update brief.md — WITH SECTION TAGS (MANDATORY):
+   Find your pre-created section:
+   <!-- agent: frontend-lead -->
+   ## Frontend-Lead Output — {Task} — {date}
+   Write your output here.
+   <!-- /agent: frontend-lead -->
+   If your section does not exist yet, create it with tags.
+   NEVER write output outside of your agent tags.
 2. Update decisions.md with frontend ADRs
 3. MANDATORY patterns.md entry for frontend patterns
 4. Remember to agentmemory: component decisions, state patterns,

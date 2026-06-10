@@ -76,8 +76,14 @@ Hard block (BLOCKED) when:
    d. memory_recall: 'token optimization compression'
    Note: check past eval results before changing prompts.
 
-1. Read brief.md: ai-lead's prompt strategy
-2. Read decisions.md: AI/prompt ADRs
+1. Read brief.md — YOUR SECTIONS ONLY:
+   Search for: <!-- agent: prompt-engineer -->
+   and: <!-- domain: backend -->
+   If no tags found: read last 100 lines only.
+   DO NOT read the full file.
+2. Read decisions.md — YOUR ADRs ONLY:
+   Search for: <!-- domain: backend -->
+   If no tags found: read full file (fallback).
 3. Understand the task, the model, and the quality bar
 4. Assumptions without asking:
    - Every prompt versioned with changelog
@@ -198,7 +204,14 @@ Before/after optimization token counts.
 
 ## 🔄 After You Finish
 
-1. Update brief.md
+1. Update brief.md — WITH SECTION TAGS (MANDATORY):
+   Find your pre-created section:
+   <!-- agent: prompt-engineer -->
+   ## Prompt-Engineer Output — {Task} — {date}
+   Write your output here.
+   <!-- /agent: prompt-engineer -->
+   If your section does not exist yet, create it with tags.
+   NEVER write output outside of your agent tags.
 2. MANDATORY patterns.md entry
 3. Remember to agentmemory: prompt patterns, eval results,
    common failure modes, optimization techniques
