@@ -72,10 +72,12 @@ Hard block (BLOCKED) when:
 
 ## 🧠 Before You Start
 
-0. Check agentmemory availability:
-   - Recall: "ML pipeline", "model training", "inference",
-     "experiment tracking", "RAG", "embeddings"
-   - If unavailable: read brief.md ML sections
+0. ML context recall:
+   a. memory_recall: 'model training pipeline experiment'
+   b. memory_recall: 'inference optimization latency'
+   c. memory_recall: 'evaluation metric benchmark'
+   d. memory_recall: 'RAG embedding vector search'
+   Note: check past experiment results before new runs.
 
 1. Read brief.md: ai-lead's ML strategy and spec
 2. Read decisions.md: ML/AI ADRs

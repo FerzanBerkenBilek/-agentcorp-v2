@@ -71,10 +71,12 @@ Hard block (BLOCKED) when:
 
 ## 🧠 Before You Start
 
-0. Check agentmemory availability:
-   - Recall: "deployment", "CI/CD", "Docker", "infrastructure",
-     "environment", "secrets", "monitoring"
-   - If unavailable: read brief.md and decisions.md
+0. Infrastructure context recall:
+   a. memory_recall: 'deployment CI/CD pipeline'
+   b. memory_recall: 'Docker infrastructure secrets'
+   c. memory_recall: 'environment configuration health check'
+   d. memory_recall: 'rollback procedure runbook'
+   Note: reuse established deployment patterns.
 
 1. Read decisions.md for existing infrastructure ADRs
 2. Read package.json: Node.js version (.nvmrc), scripts

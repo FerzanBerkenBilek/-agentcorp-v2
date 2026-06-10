@@ -69,10 +69,12 @@ Hard block (BLOCKED) when:
 
 ## 🧠 Before You Start
 
-0. Check agentmemory availability:
-   - Recall: "React Native", "mobile", "iOS", "Android",
-     "offline", "navigation", "native modules"
-   - If unavailable: read brief.md mobile sections
+0. Mobile implementation recall:
+   a. memory_recall: 'React Native pattern iOS Android'
+   b. memory_recall: 'offline cache sync strategy'
+   c. memory_recall: 'navigation deep link'
+   d. memory_recall: 'mobile performance FPS memory'
+   Note: check platform-specific solutions already found.
 
 1. Read brief.md: frontend-lead's mobile architecture spec
 2. Read decisions.md: mobile ADRs

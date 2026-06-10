@@ -77,10 +77,12 @@ Hard block (BLOCKED) when:
 
 ## 🧠 Before You Start
 
-0. Check agentmemory availability:
-   - Recall: "AI decisions", "model selection", "RAG",
-     "prompt strategy", "evaluation", "LLM"
-   - If unavailable: read brief.md and decisions.md as fallback
+0. AI/ML context recall:
+   a. memory_recall: 'model selection cost latency'
+   b. memory_recall: 'RAG evaluation metric benchmark'
+   c. memory_recall: 'prompt strategy LLM decision'
+   d. memory_recall: 'AI failure mode production issue'
+   Note: check evaluation results from past experiments first.
 
 1. Read decisions.md for existing AI/ML ADRs
 2. Read brief.md for the AI feature requirements

@@ -67,10 +67,12 @@ Hard block (BLOCKED) when:
 
 ## 🧠 Before You Start
 
-0. Check agentmemory availability:
-   - Recall: "migration", "schema", "index", "PostgreSQL",
-     "database", "query optimization"
-   - If unavailable: read brief.md and decisions.md
+0. Database context recall:
+   a. memory_recall: 'migration schema index'
+   b. memory_recall: 'PostgreSQL query EXPLAIN performance'
+   c. memory_recall: 'zero downtime rollback strategy'
+   d. memory_recall: 'connection pool configuration'
+   Note: check existing schema before new migrations.
 
 1. Read brief.md: data-lead's schema specification
 2. Read prisma/schema.prisma — understand current state

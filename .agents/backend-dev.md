@@ -87,10 +87,12 @@ Hard block (BLOCKED) when:
 
 ## 🧠 Before You Start
 
-0. Check agentmemory availability:
-   - Recall: "implementation patterns", "error handling",
-     "auth patterns", "API conventions", "service layer"
-   - If unavailable: read brief.md implementation sections
+0. Implementation context recall:
+   a. memory_recall: 'service layer pattern implementation'
+   b. memory_recall: 'error handling typed errors AppError'
+   c. memory_recall: 'API endpoint Fastify Zod validation'
+   d. memory_recall: 'security control auth middleware'
+   Note: check how similar features were implemented before.
 
 1. Read brief.md: architect output, tech-lead output,
    security-engineer requirements, data-lead schema spec

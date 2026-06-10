@@ -77,10 +77,12 @@ Hard block (BLOCKED) when:
 
 ## 🧠 Before You Start
 
-0. Check agentmemory availability:
-   - Recall: "tech stack", "dependencies", "coding standards",
-     "technology decisions", "build configuration"
-   - If unavailable: read brief.md and decisions.md as fallback
+0. Technology context recall:
+   a. memory_recall: 'tech stack dependency decision'
+   b. memory_recall: 'package approved rejected license'
+   c. memory_recall: 'coding standards conventions pattern'
+   d. memory_recall: 'build configuration TypeScript'
+   Note: do not re-evaluate already-decided tech choices.
 
 1. Read decisions.md — understand all technology ADRs already made
 2. Read package.json — understand current dependency tree

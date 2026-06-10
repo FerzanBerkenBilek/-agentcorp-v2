@@ -89,10 +89,12 @@ Hard block (BLOCKED) when:
 
 ## 🧠 Before You Start
 
-0. Check agentmemory availability:
-   - Recall: "architecture decisions", "system design", "ADR",
-     "integration patterns", "module structure"
-   - If unavailable: read decisions.md fully as fallback
+0. Architecture context recall:
+   a. memory_recall: 'architecture decision ADR system design'
+   b. memory_recall: 'module boundaries coupling cohesion'
+   c. memory_recall: 'integration pattern scalability'
+   d. memory_recall: 'rejected architectures why'
+   Note: understand existing decisions before proposing new ones.
 
 1. Read decisions.md fully — understand all existing ADRs
 2. Read brief.md — understand what problem is being solved

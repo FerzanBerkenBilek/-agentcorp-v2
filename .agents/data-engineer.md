@@ -68,10 +68,12 @@ Hard block (BLOCKED) when:
 
 ## 🧠 Before You Start
 
-0. Check agentmemory availability:
-   - Recall: "ETL", "pipeline", "data quality",
-     "idempotency", "scheduling", "batch"
-   - If unavailable: read brief.md pipeline sections
+0. Pipeline context recall:
+   a. memory_recall: 'ETL pipeline idempotency'
+   b. memory_recall: 'data quality validation check'
+   c. memory_recall: 'scheduling retry dead letter'
+   d. memory_recall: 'streaming batch processing'
+   Note: check existing pipeline patterns before new builds.
 
 1. Read brief.md: data-lead's pipeline specification
 2. Read decisions.md: data architecture ADRs

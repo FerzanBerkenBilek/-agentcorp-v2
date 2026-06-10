@@ -72,10 +72,12 @@ Hard block (BLOCKED) when:
 
 ## 🧠 Before You Start
 
-0. Check agentmemory availability:
-   - Recall: "React patterns", "component design",
-     "state management", "frontend conventions", "testing"
-   - If unavailable: read brief.md frontend sections
+0. Frontend implementation recall:
+   a. memory_recall: 'React component pattern hook'
+   b. memory_recall: 'state management solution'
+   c. memory_recall: 'accessibility ARIA keyboard'
+   d. memory_recall: 'React Query data fetching'
+   Note: reuse existing component patterns.
 
 1. Read brief.md: frontend-lead's component spec
 2. Read decisions.md: frontend ADRs

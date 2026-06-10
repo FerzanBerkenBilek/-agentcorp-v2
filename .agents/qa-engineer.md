@@ -71,10 +71,12 @@ Hard block (BLOCKED) when:
 
 ## 🧠 Before You Start
 
-0. Check agentmemory availability:
-   - Recall: "test patterns", "coverage", "test strategy",
-     "mocking", "integration tests", "bugs found"
-   - If unavailable: read brief.md testing sections
+0. Testing context recall:
+   a. memory_recall: 'test pattern coverage strategy'
+   b. memory_recall: 'bug found regression flaky'
+   c. memory_recall: 'security test auth authorization'
+   d. memory_recall: 'integration test mock pattern'
+   Note: check known bug patterns before writing new tests.
 
 1. Read brief.md: what was implemented, security requirements
 2. Read the implementation code before writing tests

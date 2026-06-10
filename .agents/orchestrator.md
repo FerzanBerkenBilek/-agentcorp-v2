@@ -92,12 +92,12 @@ Hard block (stop everything) when:
 
 ## 🧠 Before You Start
 
-0. Check agentmemory availability:
-   - If mcp__plugin_agentmemory__agentmemory__memory_recall accessible:
-     recall with queries: "project architecture", "tech stack decisions",
-     "previous features", "security findings"
-   - If unavailable: read brief.md and decisions.md fully as substitute
-     Log: "agentmemory unavailable — using brief.md fallback"
+0. Memory bootstrap (run ALL before doing anything):
+   a. memory_recall: 'project architecture tech stack ADR'
+   b. memory_recall: 'orchestration patterns agent routing'
+   c. memory_recall: 'previous session blockers quality gate'
+   d. memory_recall: 'brief checkpoint resume'
+   Cross-reference: brief.md + decisions.md
 
 1. Read brief.md fully — understand current project state
 2. Read decisions.md — know all existing ADRs before planning

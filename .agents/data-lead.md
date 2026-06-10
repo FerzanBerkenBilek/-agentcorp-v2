@@ -72,10 +72,12 @@ Hard block (BLOCKED) when:
 
 ## 🧠 Before You Start
 
-0. Check agentmemory availability:
-   - Recall: "schema", "database", "entity", "migration",
-     "index", "data model", "PostgreSQL"
-   - If unavailable: read brief.md and decisions.md
+0. Data architecture recall:
+   a. memory_recall: 'schema design entity model'
+   b. memory_recall: 'database decision PostgreSQL index'
+   c. memory_recall: 'data pipeline architecture'
+   d. memory_recall: 'migration strategy rollback'
+   Note: check existing schema decisions before new modeling.
 
 1. Read decisions.md for existing data architecture ADRs
 2. Read prisma/schema.prisma — understand current data model

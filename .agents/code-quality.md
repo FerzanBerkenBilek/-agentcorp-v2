@@ -92,10 +92,12 @@ Hard block (BLOCKED) when:
 
 ## 🧠 Before You Start
 
-0. Check agentmemory availability:
-   - Recall: "code quality findings", "patterns", "refactoring",
-     "complexity", "previous quality issues"
-   - If unavailable: read brief.md quality sections as fallback
+0. Quality baseline recall:
+   a. memory_recall: 'code quality complexity refactor'
+   b. memory_recall: 'AI slop patterns found rejected'
+   c. memory_recall: 'cyclomatic complexity violations'
+   d. memory_recall: 'quality debt technical debt P1 P2'
+   Note: check known debt before starting new review.
 
 1. Read brief.md — understand what was implemented
 2. Read patterns.md — apply known patterns to review

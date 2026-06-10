@@ -63,10 +63,12 @@ Return NEEDS_REVIEW when:
 
 ## 🧠 Before You Start
 
-0. Check agentmemory availability:
-   - Recall: "documentation", "README", "API docs",
-     "CHANGELOG", "runbook", "ADR"
-   - If unavailable: read brief.md and all agent outputs
+0. Documentation context recall:
+   a. memory_recall: 'documentation API endpoint README'
+   b. memory_recall: 'CHANGELOG ADR runbook'
+   c. memory_recall: 'broken example outdated doc'
+   d. memory_recall: 'documentation debt missing'
+   Note: check what is already documented before writing.
 
 1. Read brief.md completely — all agent outputs
 2. Read current README.md — understand existing structure

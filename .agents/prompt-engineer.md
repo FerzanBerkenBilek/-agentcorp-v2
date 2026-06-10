@@ -69,10 +69,12 @@ Hard block (BLOCKED) when:
 
 ## 🧠 Before You Start
 
-0. Check agentmemory availability:
-   - Recall: "prompt engineering", "system prompt",
-     "few-shot", "evaluation", "output format"
-   - If unavailable: read brief.md AI sections
+0. Prompt engineering recall:
+   a. memory_recall: 'system prompt version evaluation'
+   b. memory_recall: 'few-shot example quality'
+   c. memory_recall: 'adversarial edge case failure'
+   d. memory_recall: 'token optimization compression'
+   Note: check past eval results before changing prompts.
 
 1. Read brief.md: ai-lead's prompt strategy
 2. Read decisions.md: AI/prompt ADRs

@@ -78,10 +78,12 @@ Hard block (BLOCKED) when:
 
 ## 🧠 Before You Start
 
-0. Check agentmemory availability:
-   - Recall: "quality standards", "previous findings",
-     "coverage thresholds", "quality gate", "test results"
-   - If unavailable: read brief.md quality sections
+0. Quality gate context recall:
+   a. memory_recall: 'quality gate ship FIX IT coverage'
+   b. memory_recall: 'recurring quality issues test failure'
+   c. memory_recall: 'coverage threshold standards'
+   d. memory_recall: 'P1 findings history patterns'
+   Note: look for recurring issues before starting new gate.
 
 1. Read brief.md: qa-engineer output AND code-quality output
 2. Read security-engineer output from brief.md

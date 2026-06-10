@@ -64,10 +64,12 @@ Return NEEDS_REVIEW when:
 
 ## 🧠 Before You Start
 
-0. Check agentmemory availability:
-   - Recall: "technical debt", "dependencies", "upgrade",
-     "deprecation", "maintainability"
-   - If unavailable: read brief.md and decisions.md
+0. Technical health recall:
+   a. memory_recall: 'dependency upgrade EOL deprecated'
+   b. memory_recall: 'technical debt conscious accidental'
+   c. memory_recall: 'breaking change migration cost'
+   d. memory_recall: 'bus factor documentation risk'
+   Note: check previous debt inventory before new assessment.
 
 1. Read package.json: all dependencies and versions
 2. Read decisions.md: existing technical debt decisions

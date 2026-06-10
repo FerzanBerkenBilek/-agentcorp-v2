@@ -72,10 +72,12 @@ Hard block (BLOCKED) when:
 
 ## 🧠 Before You Start
 
-0. Check agentmemory availability:
-   - Recall: "frontend architecture", "component design",
-     "state management", "design system", "React", "performance"
-   - If unavailable: read brief.md and decisions.md
+0. Frontend architecture recall:
+   a. memory_recall: 'frontend architecture component state'
+   b. memory_recall: 'React pattern performance bundle'
+   c. memory_recall: 'accessibility design system'
+   d. memory_recall: 'mobile architecture React Native'
+   Note: reuse established component patterns.
 
 1. Read decisions.md for existing frontend ADRs
 2. Read brief.md for feature requirements

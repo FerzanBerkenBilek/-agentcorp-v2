@@ -12,3 +12,5 @@ context/decisions.md
 context/patterns.md
 # agentmemory local storage
 .agentmemory/
+
+data/

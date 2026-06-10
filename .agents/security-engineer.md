@@ -91,10 +91,13 @@ Hard block (BLOCKED) when:
 
 ## 🧠 Before You Start
 
-0. Check agentmemory availability:
-   - Recall: "security findings", "auth decisions", "OWASP",
-     "threat model", "previous vulnerabilities"
-   - If unavailable: read brief.md security sections as fallback
+0. Security context recall (run ALL before threat modeling):
+   a. memory_recall: 'security findings OWASP vulnerability'
+   b. memory_recall: 'SSRF injection auth bypass CVE'
+   c. memory_recall: 'previous security ADR threat model'
+   d. memory_recall: 'approved security patterns mitigations'
+   Note: past findings in this codebase are more valuable
+   than generic OWASP - check them first.
 
 1. Read brief.md fully — understand what is being built
 2. Read decisions.md — find all security-related ADRs
