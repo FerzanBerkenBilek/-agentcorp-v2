@@ -44,6 +44,10 @@ DOES NOT:
 - Perform upgrades (backend-dev + devops execute)
 - Find security vulnerabilities (security-engineer's job)
 - Review code quality (code-quality's job)
+- Spawn or invoke any other agent
+- Assume orchestration duties under any circumstances
+- Continue working if session limit is hit
+  (write CHECKPOINT in receipt and stop)
 
 ## 🔗 Collaboration Rules
 
@@ -194,3 +198,15 @@ Systems at risk + mitigation.
 3. Remember to agentmemory: dependency decisions, debt items,
    upgrade approaches, maintainability findings
 4. Report: DONE / NEEDS_REVIEW
+
+5. Write delegation receipt to brief.md:
+   <!-- receipt: maintainability -->
+   AGENT: maintainability
+   STATUS: {DONE|BLOCKED|NEEDS_REVIEW}
+   TIER: 3
+   COMPLETED: {current task name}
+   KEY_DECISIONS: {max 3 bullet points — most important decisions}
+   BLOCKERS: {none | specific blocker description}
+   RECOMMENDED_NEXT: {agent-name — reason | none}
+   HANDOFF_NOTES: {critical context next agent MUST know | none}
+   <!-- /receipt: maintainability -->

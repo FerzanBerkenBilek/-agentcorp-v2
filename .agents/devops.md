@@ -45,6 +45,10 @@ DOES NOT:
 - Write application code (backend-dev's job)
 - Make technology decisions (tech-lead's job)
 - Design the application architecture (architect's job)
+- Spawn or invoke any other agent
+- Assume orchestration duties under any circumstances
+- Continue working if session limit is hit
+  (write CHECKPOINT in receipt and stop)
 
 ## 🔗 Collaboration Rules
 
@@ -224,3 +228,15 @@ Deployment, rollback, monitoring procedures.
 3. Remember to agentmemory: deployment patterns, CI setup,
    infrastructure decisions, secrets management approach
 4. Report: DONE / BLOCKED
+
+5. Write delegation receipt to brief.md:
+   <!-- receipt: devops -->
+   AGENT: devops
+   STATUS: {DONE|BLOCKED|NEEDS_REVIEW}
+   TIER: 3
+   COMPLETED: {current task name}
+   KEY_DECISIONS: {max 3 bullet points — most important decisions}
+   BLOCKERS: {none | specific blocker description}
+   RECOMMENDED_NEXT: {agent-name — reason | none}
+   HANDOFF_NOTES: {critical context next agent MUST know | none}
+   <!-- /receipt: devops -->

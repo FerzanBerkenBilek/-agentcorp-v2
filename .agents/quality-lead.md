@@ -48,6 +48,8 @@ DOES NOT:
 - Find security vulnerabilities (security-engineer's job)
 - Override security-engineer's Critical findings
 - Ship code with unresolved P1 findings for any reason
+- Spawn or invoke any specialist agent directly
+  (write RECOMMENDED_NEXT in receipt instead)
 
 ## 🔗 Collaboration Rules
 
@@ -224,3 +226,16 @@ Security: {verdict from security-engineer}
 3. Remember to agentmemory: quality findings, coverage trends,
    recurring issues, gate decisions
 4. Report: SHIP IT / FIX IT {explicit P1 list} / BLOCKED
+
+5. Write delegation receipt to brief.md:
+   <!-- receipt: quality-lead -->
+   AGENT: quality-lead
+   STATUS: {DONE|BLOCKED|NEEDS_REVIEW}
+   TIER: 2
+   COMPLETED: {current task name}
+   KEY_DECISIONS: {max 3 bullet points — most important decisions}
+   BLOCKERS: {none | specific blocker description}
+   RECOMMENDED_NEXT: {agent-name — reason | none}
+   HANDOFF_NOTES: {critical context next agent MUST know | none}
+   <!-- /receipt: quality-lead -->
+   NOTE (Tier 2 lead): you cannot invoke specialists — RECOMMENDED_NEXT is your only delegation channel.

@@ -45,6 +45,9 @@ DOES NOT:
 - Override security-engineer findings
 - Override quality-lead's FIX IT verdict
 - Skip quality gates under time pressure
+- Allow any agent to claim orchestration duties
+- Proceed past a BLOCKED receipt without user input
+- Skip quality gate sequence for any reason
 
 ## 🔗 Collaboration Rules
 
@@ -157,10 +160,43 @@ Step 4 — Write brief.md with section tags (MANDATORY):
   (agent fills this in)
   <!-- /agent: {agent-name} -->
 
+  For each agent to be invoked, pre-create their receipt block:
+  <!-- receipt: {agent-name} -->
+  AGENT: {agent-name}
+  STATUS: PENDING
+  TIER: {2|3}
+  COMPLETED: —
+  KEY_DECISIONS: —
+  BLOCKERS: —
+  RECOMMENDED_NEXT: —
+  HANDOFF_NOTES: —
+  <!-- /receipt: {agent-name} -->
+  This ensures the agent has a designated place to write.
+
+  Update Hierarchy Execution Log table in brief.md:
+  | {phase} | {agent-name} | {tier} | PENDING | {task} |
+  Update to DONE/BLOCKED after receipt is received.
+
 Step 5 — Execute phases:
   Call agents in planned order.
   After each phase: read brief.md to verify agents wrote outputs.
   If an agent did not update brief.md: flag it, do not proceed blindly.
+
+  After each agent completes:
+  1. Find their <!-- receipt: {agent-name} --> block in brief.md
+  2. Check STATUS field:
+     - DONE: proceed to next phase
+     - BLOCKED: stop, read BLOCKERS, escalate to user
+     - NEEDS_REVIEW: read HANDOFF_NOTES, decide re-route or escalate
+  3. Check RECOMMENDED_NEXT:
+     - If lead recommends a specialist: evaluate and invoke if appropriate
+     - Never blindly follow recommendations — orchestrator decides
+  4. Check HANDOFF_NOTES:
+     - Pass critical context to next agent via their pre-created
+       tag section in brief.md
+  5. If brief.md has no receipt from an agent that was called:
+     - Do NOT assume success
+     - Re-invoke the agent or escalate
 
 Step 6 — Handle quality gate:
   If quality-lead returns FIX IT:
@@ -288,6 +324,18 @@ Final report to user (after all agents):
    - Key architectural decisions
 4. Report to user: synthesized final report (see Output Format)
 
+5. Write delegation receipt to brief.md:
+   <!-- receipt: orchestrator -->
+   AGENT: orchestrator
+   STATUS: {DONE|BLOCKED|NEEDS_REVIEW}
+   TIER: 1
+   COMPLETED: {current task name}
+   KEY_DECISIONS: {max 3 bullet points — most important decisions}
+   BLOCKERS: {none | specific blocker description}
+   RECOMMENDED_NEXT: {agent-name — reason | none}
+   HANDOFF_NOTES: {critical context next agent MUST know | none}
+   <!-- /receipt: orchestrator -->
+
 ## 🔴 Task Decomposition Protocol
 
 For any incoming task:
@@ -343,3 +391,27 @@ If session limit approaches:
   3. On resume: read checkpoint section first, continue from there
   Always resume as a new orchestrator subagent, never let main loop
   take over orchestration.
+
+Checkpoint format (MANDATORY — write this exactly):
+  <!-- receipt: orchestrator -->
+  AGENT: orchestrator
+  STATUS: CHECKPOINT
+  TIER: 1
+  COMPLETED: {phases completed list}
+  KEY_DECISIONS: {decisions made so far}
+  BLOCKERS: session limit reached
+  RECOMMENDED_NEXT: orchestrator — resume from checkpoint
+  HANDOFF_NOTES: |
+    Resume instructions:
+    1. Read Hierarchy Execution Log for completed phases
+    2. Read all <!-- receipt: X --> blocks for agent outputs
+    3. Remaining phases: {list remaining agents}
+    4. Next action: {exact next step}
+  <!-- /receipt: orchestrator -->
+
+When resuming after session limit:
+  1. Read brief.md Hierarchy Execution Log
+  2. Find all DONE receipts — those phases are complete
+  3. Find PENDING receipts — those agents did not finish
+  4. Resume from first non-DONE phase
+  Never re-run phases that have DONE receipts.

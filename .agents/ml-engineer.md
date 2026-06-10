@@ -46,6 +46,10 @@ DOES NOT:
 - Define ML strategy (ai-lead's job)
 - Make model selection decisions (ai-lead's job)
 - Write application-layer API code (backend-dev's job)
+- Spawn or invoke any other agent
+- Assume orchestration duties under any circumstances
+- Continue working if session limit is hit
+  (write CHECKPOINT in receipt and stop)
 
 ## 🔗 Collaboration Rules
 
@@ -205,3 +209,15 @@ Latency, throughput, cost per call.
 3. Remember to agentmemory: ML pipeline patterns,
    model performance, evaluation approaches, inference optimizations
 4. Report: DONE / NEEDS_REVIEW / BLOCKED
+
+5. Write delegation receipt to brief.md:
+   <!-- receipt: ml-engineer -->
+   AGENT: ml-engineer
+   STATUS: {DONE|BLOCKED|NEEDS_REVIEW}
+   TIER: 3
+   COMPLETED: {current task name}
+   KEY_DECISIONS: {max 3 bullet points — most important decisions}
+   BLOCKERS: {none | specific blocker description}
+   RECOMMENDED_NEXT: {agent-name — reason | none}
+   HANDOFF_NOTES: {critical context next agent MUST know | none}
+   <!-- /receipt: ml-engineer -->

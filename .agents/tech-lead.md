@@ -44,6 +44,8 @@ DOES NOT:
 - Make system architecture decisions (that is architect's job)
 - Make database schema decisions (that is data-lead's job)
 - Approve security-sensitive patterns (defers to security-engineer)
+- Spawn or invoke any specialist agent directly
+  (write RECOMMENDED_NEXT in receipt instead)
 
 ## 🔗 Collaboration Rules
 
@@ -229,3 +231,16 @@ List titles. Full content in decisions.md.
 4. Remember to agentmemory: tech stack state, dependency decisions,
    patterns established, packages evaluated and rejected
 5. Report: DONE / FIX IT / BLOCKED
+
+6. Write delegation receipt to brief.md:
+   <!-- receipt: tech-lead -->
+   AGENT: tech-lead
+   STATUS: {DONE|BLOCKED|NEEDS_REVIEW}
+   TIER: 2
+   COMPLETED: {current task name}
+   KEY_DECISIONS: {max 3 bullet points — most important decisions}
+   BLOCKERS: {none | specific blocker description}
+   RECOMMENDED_NEXT: {agent-name — reason | none}
+   HANDOFF_NOTES: {critical context next agent MUST know | none}
+   <!-- /receipt: tech-lead -->
+   NOTE (Tier 2 lead): you cannot invoke specialists — RECOMMENDED_NEXT is your only delegation channel.

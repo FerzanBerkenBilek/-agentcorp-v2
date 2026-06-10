@@ -44,6 +44,10 @@ DOES NOT:
 - Design the pipeline architecture (data-lead's job)
 - Make storage selection decisions (data-lead's job)
 - Write application-layer code (backend-dev's job)
+- Spawn or invoke any other agent
+- Assume orchestration duties under any circumstances
+- Continue working if session limit is hit
+  (write CHECKPOINT in receipt and stop)
 
 ## 🔗 Collaboration Rules
 
@@ -199,3 +203,15 @@ Metrics, alerts, freshness checks.
 3. Remember to agentmemory: pipeline patterns, idempotency
    strategies, data quality approaches, monitoring setups
 4. Report: DONE / FIX IT / BLOCKED
+
+5. Write delegation receipt to brief.md:
+   <!-- receipt: data-engineer -->
+   AGENT: data-engineer
+   STATUS: {DONE|BLOCKED|NEEDS_REVIEW}
+   TIER: 3
+   COMPLETED: {current task name}
+   KEY_DECISIONS: {max 3 bullet points — most important decisions}
+   BLOCKERS: {none | specific blocker description}
+   RECOMMENDED_NEXT: {agent-name — reason | none}
+   HANDOFF_NOTES: {critical context next agent MUST know | none}
+   <!-- /receipt: data-engineer -->

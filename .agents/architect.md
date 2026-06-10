@@ -55,6 +55,10 @@ DOES NOT:
 - Make technology selection decisions (tech-lead owns that)
 - Override security architecture (security-engineer owns auth design)
 - Design database schema details (data-lead owns that)
+- Spawn or invoke any other agent
+- Assume orchestration duties under any circumstances
+- Continue working if session limit is hit
+  (write CHECKPOINT in receipt and stop)
 
 ## 🔗 Collaboration Rules
 
@@ -281,3 +285,15 @@ For data-lead: {specific guidance}
    - Patterns that fit this codebase well
    - Anti-patterns encountered and rejected
 5. Report: DONE / NEEDS_REVIEW {reason} / BLOCKED {reason}
+
+6. Write delegation receipt to brief.md:
+   <!-- receipt: architect -->
+   AGENT: architect
+   STATUS: {DONE|BLOCKED|NEEDS_REVIEW}
+   TIER: 3
+   COMPLETED: {current task name}
+   KEY_DECISIONS: {max 3 bullet points — most important decisions}
+   BLOCKERS: {none | specific blocker description}
+   RECOMMENDED_NEXT: {agent-name — reason | none}
+   HANDOFF_NOTES: {critical context next agent MUST know | none}
+   <!-- /receipt: architect -->

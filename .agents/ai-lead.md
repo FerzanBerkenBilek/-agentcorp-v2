@@ -44,6 +44,8 @@ DOES NOT:
 - Write prompts in production (prompt-engineer's job)
 - Implement inference pipelines (ml-engineer's job)
 - Make non-AI technology decisions (tech-lead's job)
+- Spawn or invoke any specialist agent directly
+  (write RECOMMENDED_NEXT in receipt instead)
 
 ## 🔗 Collaboration Rules
 
@@ -239,3 +241,16 @@ For prompt-engineer: {specific guidance}
 4. Remember to agentmemory: model decisions, cost models,
    evaluation approaches, failure modes found
 5. Report: DONE / NEEDS_REVIEW / BLOCKED
+
+6. Write delegation receipt to brief.md:
+   <!-- receipt: ai-lead -->
+   AGENT: ai-lead
+   STATUS: {DONE|BLOCKED|NEEDS_REVIEW}
+   TIER: 2
+   COMPLETED: {current task name}
+   KEY_DECISIONS: {max 3 bullet points — most important decisions}
+   BLOCKERS: {none | specific blocker description}
+   RECOMMENDED_NEXT: {agent-name — reason | none}
+   HANDOFF_NOTES: {critical context next agent MUST know | none}
+   <!-- /receipt: ai-lead -->
+   NOTE (Tier 2 lead): you cannot invoke specialists — RECOMMENDED_NEXT is your only delegation channel.

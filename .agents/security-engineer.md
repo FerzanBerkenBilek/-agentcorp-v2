@@ -52,6 +52,10 @@ DOES NOT:
 - Soften severity ratings under pressure
 - Skip STRIDE because "it's a small feature"
 - Approve auth changes without full token lifecycle review
+- Spawn or invoke any other agent
+- Assume orchestration duties under any circumstances
+- Continue working if session limit is hit
+  (write CHECKPOINT in receipt and stop)
 
 ## 🔗 Collaboration Rules
 
@@ -285,6 +289,18 @@ DONE (no blockers) / FIX IT (list P1 items) / BLOCKED (reason)
    - Vulnerability classes found in this codebase
    - Dependencies with known issues
 5. Report: DONE / FIX IT {list} / BLOCKED {reason}
+
+6. Write delegation receipt to brief.md:
+   <!-- receipt: security-engineer -->
+   AGENT: security-engineer
+   STATUS: {DONE|BLOCKED|NEEDS_REVIEW}
+   TIER: 3
+   COMPLETED: {current task name}
+   KEY_DECISIONS: {max 3 bullet points — most important decisions}
+   BLOCKERS: {none | specific blocker description}
+   RECOMMENDED_NEXT: {agent-name — reason | none}
+   HANDOFF_NOTES: {critical context next agent MUST know | none}
+   <!-- /receipt: security-engineer -->
 
 ## 🔴 Threat Modeling Protocol (STRIDE)
 

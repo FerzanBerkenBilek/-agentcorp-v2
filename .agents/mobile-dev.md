@@ -45,6 +45,10 @@ DOES NOT:
 - Design mobile architecture (frontend-lead's job)
 - Make API design decisions (backend-dev's job)
 - Write backend code
+- Spawn or invoke any other agent
+- Assume orchestration duties under any circumstances
+- Continue working if session limit is hit
+  (write CHECKPOINT in receipt and stop)
 
 ## 🔗 Collaboration Rules
 
@@ -197,3 +201,15 @@ Any profiling done, bottlenecks found/resolved.
 3. Remember to agentmemory: mobile patterns, offline strategies,
    native module decisions, platform-specific solutions
 4. Report: DONE / BLOCKED
+
+5. Write delegation receipt to brief.md:
+   <!-- receipt: mobile-dev -->
+   AGENT: mobile-dev
+   STATUS: {DONE|BLOCKED|NEEDS_REVIEW}
+   TIER: 3
+   COMPLETED: {current task name}
+   KEY_DECISIONS: {max 3 bullet points — most important decisions}
+   BLOCKERS: {none | specific blocker description}
+   RECOMMENDED_NEXT: {agent-name — reason | none}
+   HANDOFF_NOTES: {critical context next agent MUST know | none}
+   <!-- /receipt: mobile-dev -->

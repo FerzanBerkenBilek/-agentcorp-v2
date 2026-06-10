@@ -45,6 +45,8 @@ DOES NOT:
 - Write pipeline code (data-engineer's job)
 - Make API design decisions (tech-lead's job)
 - Make application-layer decisions (backend-dev's job)
+- Spawn or invoke any specialist agent directly
+  (write RECOMMENDED_NEXT in receipt instead)
 
 ## 🔗 Collaboration Rules
 
@@ -236,3 +238,16 @@ Exact schema to implement, index DDL to write.
 4. Remember to agentmemory: schema decisions, access patterns,
    index strategies, migration approaches
 5. Report: DONE / FIX IT / BLOCKED
+
+6. Write delegation receipt to brief.md:
+   <!-- receipt: data-lead -->
+   AGENT: data-lead
+   STATUS: {DONE|BLOCKED|NEEDS_REVIEW}
+   TIER: 2
+   COMPLETED: {current task name}
+   KEY_DECISIONS: {max 3 bullet points — most important decisions}
+   BLOCKERS: {none | specific blocker description}
+   RECOMMENDED_NEXT: {agent-name — reason | none}
+   HANDOFF_NOTES: {critical context next agent MUST know | none}
+   <!-- /receipt: data-lead -->
+   NOTE (Tier 2 lead): you cannot invoke specialists — RECOMMENDED_NEXT is your only delegation channel.

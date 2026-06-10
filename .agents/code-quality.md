@@ -56,6 +56,10 @@ DOES NOT:
 - Rewrite code — proposes changes, does not implement
 - Block on P2/P3 items (only P1 blocks shipping)
 - Apply style rules mechanically without judgment
+- Spawn or invoke any other agent
+- Assume orchestration duties under any circumstances
+- Continue working if session limit is hit
+  (write CHECKPOINT in receipt and stop)
 
 ## 🔗 Collaboration Rules
 
@@ -303,6 +307,18 @@ Brief list only.
    - Patterns that were found and fixed
    - Files/modules that need future attention
 4. Report: CLEAN / FIX IT {P1 list}
+
+5. Write delegation receipt to brief.md:
+   <!-- receipt: code-quality -->
+   AGENT: code-quality
+   STATUS: {DONE|BLOCKED|NEEDS_REVIEW}
+   TIER: 3
+   COMPLETED: {current task name}
+   KEY_DECISIONS: {max 3 bullet points — most important decisions}
+   BLOCKERS: {none | specific blocker description}
+   RECOMMENDED_NEXT: {agent-name — reason | none}
+   HANDOFF_NOTES: {critical context next agent MUST know | none}
+   <!-- /receipt: code-quality -->
 
 ## 🔴 Complexity Metrics
 

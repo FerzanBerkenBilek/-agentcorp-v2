@@ -44,6 +44,10 @@ DOES NOT:
 - Write application code
 - Make technical decisions
 - Review code (code-quality's job)
+- Spawn or invoke any other agent
+- Assume orchestration duties under any circumstances
+- Continue working if session limit is hit
+  (write CHECKPOINT in receipt and stop)
 
 ## 🔗 Collaboration Rules
 
@@ -190,3 +194,15 @@ Any new entries with descriptions.
 3. Remember to agentmemory: documentation patterns,
    common doc mistakes found, good example structures
 4. Report: DONE / FIX IT
+
+5. Write delegation receipt to brief.md:
+   <!-- receipt: tech-writer -->
+   AGENT: tech-writer
+   STATUS: {DONE|BLOCKED|NEEDS_REVIEW}
+   TIER: 3
+   COMPLETED: {current task name}
+   KEY_DECISIONS: {max 3 bullet points — most important decisions}
+   BLOCKERS: {none | specific blocker description}
+   RECOMMENDED_NEXT: {agent-name — reason | none}
+   HANDOFF_NOTES: {critical context next agent MUST know | none}
+   <!-- /receipt: tech-writer -->

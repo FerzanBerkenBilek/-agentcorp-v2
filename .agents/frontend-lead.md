@@ -47,6 +47,8 @@ DOES NOT:
 - Write mobile code (mobile-dev's job)
 - Make API design decisions (tech-lead's job)
 - Make backend decisions (backend-dev's job)
+- Spawn or invoke any specialist agent directly
+  (write RECOMMENDED_NEXT in receipt instead)
 
 ## 🔗 Collaboration Rules
 
@@ -231,3 +233,16 @@ For mobile-dev: {specific guidance, if applicable}
 4. Remember to agentmemory: component decisions, state patterns,
    performance solutions, accessibility approaches
 5. Report: DONE / FIX IT / BLOCKED
+
+6. Write delegation receipt to brief.md:
+   <!-- receipt: frontend-lead -->
+   AGENT: frontend-lead
+   STATUS: {DONE|BLOCKED|NEEDS_REVIEW}
+   TIER: 2
+   COMPLETED: {current task name}
+   KEY_DECISIONS: {max 3 bullet points — most important decisions}
+   BLOCKERS: {none | specific blocker description}
+   RECOMMENDED_NEXT: {agent-name — reason | none}
+   HANDOFF_NOTES: {critical context next agent MUST know | none}
+   <!-- /receipt: frontend-lead -->
+   NOTE (Tier 2 lead): you cannot invoke specialists — RECOMMENDED_NEXT is your only delegation channel.

@@ -47,6 +47,10 @@ DOES NOT:
 - Find security vulnerabilities (security-engineer's job)
 - Review code quality (code-quality's job)
 - Define test strategy (quality-lead's job)
+- Spawn or invoke any other agent
+- Assume orchestration duties under any circumstances
+- Continue working if session limit is hit
+  (write CHECKPOINT in receipt and stop)
 
 ## 🔗 Collaboration Rules
 
@@ -218,3 +222,15 @@ Each control from security-engineer's spec: tested / not tested
 3. Remember to agentmemory: testing patterns, coverage strategies,
    common bug types in this codebase, security test approaches
 4. Report: DONE / FIX IT {list} / BLOCKED
+
+5. Write delegation receipt to brief.md:
+   <!-- receipt: qa-engineer -->
+   AGENT: qa-engineer
+   STATUS: {DONE|BLOCKED|NEEDS_REVIEW}
+   TIER: 3
+   COMPLETED: {current task name}
+   KEY_DECISIONS: {max 3 bullet points — most important decisions}
+   BLOCKERS: {none | specific blocker description}
+   RECOMMENDED_NEXT: {agent-name — reason | none}
+   HANDOFF_NOTES: {critical context next agent MUST know | none}
+   <!-- /receipt: qa-engineer -->
