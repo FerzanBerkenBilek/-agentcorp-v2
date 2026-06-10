@@ -27,6 +27,7 @@ REST API for the Task Management service.
   - [GET /:code](#get-code)
   - [GET /:code/stats](#get-codestats)
   - [DELETE /:code](#delete-code)
+- [WebSocket — Real-Time Task Updates](#websocket--real-time-task-updates)
 
 ---
 
@@ -880,6 +881,211 @@ Delete a short code. **Owner only.** After deletion the redirect returns `404`.
 curl -i -X DELETE http://localhost:3000/aZ3xK9 \
   -H "Authorization: Bearer $ACCESS_TOKEN"
 ```
+
+---
+
+## WebSocket — Real-Time Task Updates
+
+A WebSocket channel that pushes task lifecycle events to a client in real time.
+Whenever a task you own or are assigned to is created, updated, or deleted via
+the REST API, an event is delivered to your live, subscribed connections.
+
+- **Endpoint:** `ws://localhost:3000/ws` (use `wss://` in production).
+- **Direction:** the server pushes task events to you. The client sends only
+  `subscribe`/`unsubscribe` control frames — **there are no mutations over
+  WebSocket**; all writes stay on the REST API.
+- **Auth:** a valid access token is required on the upgrade handshake (same token
+  as REST, see [Authentication](#authentication)). The connection is rejected if
+  the token is missing, invalid, expired, or the `Origin` is not allowed.
+
+### Connecting and authenticating
+
+The token is checked **during the upgrade handshake** — there is no
+`Authorization` header on a WebSocket (the browser `WebSocket` constructor cannot
+set one). Two transports are accepted:
+
+| Transport | How | When to use |
+|---|---|---|
+| **Subprotocol (preferred)** | Send `Sec-WebSocket-Protocol: access_token.<jwt>` — i.e. `new WebSocket(url, ["access_token." + accessToken])`. | Browsers and any client that can set a WebSocket subprotocol. The token **never appears in the URL**. |
+| **Query param (fallback)** | Append `?token=<jwt>` to the URL. | CLI tools (e.g. `wscat`) and clients that cannot set a subprotocol. |
+
+If both are present, the subprotocol wins. When the subprotocol transport is
+used, the server selects and echoes the matching `access_token.<jwt>` value back
+per RFC 6455; the query-param transport echoes no subprotocol.
+
+> **Why subprotocol is preferred (ADR-026):** a `?token=` URL is captured by
+> access logs, proxies, browser history, and the `Referer` header (CWE-532). The
+> `Sec-WebSocket-Protocol` header is set by the browser without putting the token
+> in the URL. The query-param fallback is still accepted, but the server
+> **redacts the token from its own request logs** so it cannot leak server-side.
+> Prefer the subprotocol whenever your client supports it.
+
+> **Caveat — query-param token leakage:** if you use `?token=`, the token can be
+> recorded by any intermediary that logs URLs (reverse proxies, gateways) and by
+> browser history. Treat it as a fallback for tooling, and always use `wss://`
+> (TLS) in production so the URL is not exposed on the wire.
+
+> **Why the `Origin` is checked, fail-closed in production (ADR-027):** WebSocket
+> upgrades are **not** protected by the browser Same-Origin Policy the way
+> `fetch` is, so a malicious page can open a socket with the victim's ambient
+> credentials (Cross-Site WebSocket Hijacking). The upgrade enforces the same
+> `CORS_ORIGINS` allowlist as the HTTP API. **In production, a missing, unlisted,
+> or empty-allowlist `Origin` is rejected** — so a production deployment **must**
+> set `CORS_ORIGINS` or every upgrade is refused. In non-production an empty
+> allowlist skips the check (dev convenience).
+
+### Connection lifecycle
+
+- **Per-user connection cap:** at most **10** concurrent connections per user. An
+  11th concurrent upgrade is rejected with close code `1013`.
+- **Heartbeat:** the server pings every **30 seconds**; a connection that does
+  not answer the previous ping is closed and reaped.
+- **Token expiry:** the connection is force-closed when the access token expires
+  (at its `exp`). Reconnect with a fresh token. With the default 15-minute access
+  token TTL, expect to reconnect at least that often.
+- **Frame limits (inbound):** each client frame is capped at **8 KB**; a client
+  may send at most **20 frames per 10-second window**. Exceeding either closes the
+  connection.
+- **No replay buffer:** events are ephemeral and in-process. A client that is
+  disconnected (or not yet subscribed) when an event fires **does not** receive it
+  on reconnect — there is no missed-message backfill. On reconnect you get a fresh
+  handshake and must re-subscribe.
+
+### Subscribing
+
+After connecting, send a `subscribe` frame to start receiving events for your own
+feed. No events are delivered until you subscribe.
+
+**Subscribe frame**
+
+```json
+{ "type": "subscribe" }
+```
+
+**Unsubscribe frame**
+
+```json
+{ "type": "unsubscribe" }
+```
+
+Both frames accept an **optional** `userId` field. If present, it **must equal
+your own authenticated user id**. A subscribe/unsubscribe naming any other user
+is **silently ignored** — the request is dropped with no error and no
+acknowledgement, so the existence of another user's feed is never confirmed. You
+can only ever subscribe to your own feed; you cannot tap another user's task
+stream.
+
+Frames are validated strictly: unknown fields, unknown `type` values, malformed
+JSON, and any mutation-style frame are silently ignored (no error frame is
+returned, to avoid confirming internal state).
+
+### Event envelope (server → client)
+
+Each pushed event is a JSON text frame with this shape:
+
+```json
+{
+  "type": "task.updated",
+  "task": {
+    "id": "9a1c1234-5678-90ab-cdef-1234567890ab",
+    "title": "Ship the API",
+    "description": null,
+    "status": "IN_PROGRESS",
+    "priority": "URGENT",
+    "ownerId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+    "assigneeId": null,
+    "createdAt": "2026-06-10T12:00:00.000Z",
+    "updatedAt": "2026-06-10T12:05:00.000Z"
+  },
+  "timestamp": "2026-06-10T12:05:00.000Z"
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `type` | string | One of `task.created`, `task.updated`, `task.deleted`. |
+| `task` | object | The task in the **same wire shape as the REST API** (see [POST /tasks](#post-tasks)). No extra or internal fields. |
+| `timestamp` | string | ISO-8601 time the event was emitted. |
+
+For `task.deleted`, the `task` payload is the task's state at deletion time
+(including its `ownerId`/`assigneeId`), so the event can still be delivered to the
+right recipients after the row is gone.
+
+### Who receives an event (fan-out authorization)
+
+An event is delivered to a connection **only if** all of the following hold:
+
+1. The connection's user is the task's **owner OR its assignee** — the exact same
+   owner-or-assignee rule used by the REST API's object-level authorization. There
+   is **no global broadcast**; events are only ever sent to the owner and
+   assignee.
+2. That user has an active `subscribe`.
+
+> **Why this matters (ADR-028 / IDOR defense):** the push channel reuses the
+> single REST authorization predicate (`canAccessTask`) per recipient and
+> per event — not once at subscribe time — so a change in assignment is always
+> respected, and a connection that is neither owner nor assignee receives
+> nothing. This is the same rule that makes REST return `404` for tasks you
+> cannot see, applied to the real-time channel.
+
+### Close codes
+
+The server uses RFC 6455 close codes. Security rejections all use a generic close
+reason (`policy violation`) that never reveals why, to avoid leaking state.
+
+| Code | Meaning | When |
+|---|---|---|
+| `1000` | Normal closure | Normal client disconnect. |
+| `1008` | Policy violation | **All security rejections**: auth failure (missing/invalid/expired token), `Origin` not allowed, inbound-frame rate abuse, and token-expiry force-close. Generic on purpose. |
+| `1009` | Message too big | An inbound frame exceeded the 8 KB limit. |
+| `1013` | Try again later | The per-user connection cap (10) was exceeded. |
+
+A failed handshake is closed with a code (e.g. `1008`) — it never returns an HTTP
+error body.
+
+### Example — `wscat`
+
+[`wscat`](https://github.com/websockets/wscat) (`npm i -g wscat`) is the simplest
+way to try the channel. Below uses the **query-param** transport (wscat cannot set
+a subprotocol). First obtain an access token (see the
+[end-to-end example](#end-to-end-example)).
+
+```bash
+# Connect (query-param fallback transport)
+wscat -c "ws://localhost:3000/ws?token=$ACCESS_TOKEN"
+
+# Once connected, subscribe to your own feed by sending:
+> {"type":"subscribe"}
+
+# Now create or update a task over REST in another terminal:
+#   curl -s -X POST http://localhost:3000/tasks \
+#     -H "Authorization: Bearer $ACCESS_TOKEN" \
+#     -H "Content-Type: application/json" \
+#     -d '{"title":"Ship it","priority":"HIGH"}'
+#
+# The wscat session prints the pushed event:
+< {"type":"task.created","task":{...},"timestamp":"2026-06-10T12:00:00.000Z"}
+```
+
+### Example — browser (subprotocol transport, preferred)
+
+```js
+// The token is passed as a subprotocol, NOT in the URL.
+const ws = new WebSocket('wss://api.example.com/ws', [`access_token.${accessToken}`]);
+
+ws.addEventListener('open', () => {
+  ws.send(JSON.stringify({ type: 'subscribe' }));
+});
+
+ws.addEventListener('message', (e) => {
+  const event = JSON.parse(e.data); // { type, task, timestamp }
+  console.log(event.type, event.task.id);
+});
+```
+
+> Reconnect with a freshly issued access token when the socket closes — the
+> server force-closes a connection at the token's expiry, and there is no replay,
+> so re-subscribe after every reconnect.
 
 ---
 

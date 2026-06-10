@@ -1,9 +1,9 @@
-import { Task } from '@prisma/client';
 import { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import { audit, AUDIT_ACTION } from '../shared/audit';
 import { authGuard, requireAuth } from '../shared/auth-context';
 import { HTTP_STATUS } from '../shared/errors';
 import { ok } from '../shared/http';
+import { toTaskResponse } from '../shared/task-serializer';
 import { parseOrThrow } from '../shared/validate';
 import { TasksService } from './tasks.service';
 import {
@@ -16,39 +16,6 @@ import {
 /** Dependencies injected into the tasks routes plugin. */
 export interface TasksRoutesDeps {
   tasksService: TasksService;
-}
-
-/** Wire shape of a task (Dates serialized to ISO strings). */
-interface TaskResponse {
-  id: string;
-  title: string;
-  description: string | null;
-  status: string;
-  priority: string;
-  ownerId: string;
-  assigneeId: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-/**
- * Map an internal Task to its wire DTO.
- *
- * @param task The task entity.
- * @returns The serializable task response.
- */
-function toTaskResponse(task: Task): TaskResponse {
-  return {
-    id: task.id,
-    title: task.title,
-    description: task.description,
-    status: task.status,
-    priority: task.priority,
-    ownerId: task.ownerId,
-    assigneeId: task.assigneeId,
-    createdAt: task.createdAt.toISOString(),
-    updatedAt: task.updatedAt.toISOString(),
-  };
 }
 
 /**

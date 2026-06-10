@@ -5,6 +5,56 @@ All notable changes to the Task Management API are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] — 2026-06-10
+
+Adds a real-time WebSocket channel that pushes task changes to connected clients
+as they happen — no polling required.
+
+### Added
+
+- **Real-time task updates over WebSocket.** Connect to `ws://localhost:3000/ws`
+  (`wss://` in production) and receive a push event whenever a task you own or are
+  assigned to is created, updated, or deleted. Each event carries the task in the
+  same shape as the REST API plus an event type (`task.created`, `task.updated`,
+  `task.deleted`) and a timestamp. See the
+  [API reference](docs/api.md#websocket--real-time-task-updates).
+- **Subscribe to your own feed.** After connecting, send `{"type":"subscribe"}`
+  to start receiving events, and `{"type":"unsubscribe"}` to stop. The channel is
+  read-only — all changes are still made through the REST API.
+- **Two ways to authenticate the connection.** Pass your access token either as a
+  WebSocket subprotocol (`access_token.<jwt>`, preferred — keeps the token out of
+  the URL) or, for command-line tools, as a `?token=<jwt>` query parameter.
+
+### Security
+
+- **Authenticated, origin-checked connections.** Every connection requires a
+  valid access token on the handshake and is closed automatically when that token
+  expires. The connection's `Origin` is checked against the `CORS_ORIGINS`
+  allowlist to defend against cross-site WebSocket hijacking; in production an
+  unlisted or empty-allowlist origin is rejected outright. When the token is
+  supplied via the query-param fallback, it is stripped from server request logs
+  so it cannot leak.
+- **No IDOR on the push channel.** You can only ever subscribe to your own feed —
+  a subscribe naming another user is silently ignored, never confirming that the
+  other feed exists. Events are delivered only to a task's owner and assignee
+  (never broadcast), enforced per event with the same owner-or-assignee rule the
+  REST API uses, so a change in assignment is always respected.
+- **Abuse and resource limits.** Each user is limited to 10 concurrent
+  connections, inbound frames are capped at 8 KB and 20 frames per 10 seconds, and
+  a heartbeat reaps dead connections — bounding the resource cost of the new
+  channel.
+
+### Notes / Known limitations
+
+- **In-process, single instance, no replay.** Real-time delivery runs in-process
+  on a single instance, consistent with the existing scaling note. There is no
+  missed-message backfill: a client that is offline (or not yet subscribed) when
+  an event fires will not receive it on reconnect. Running multiple instances
+  behind a load balancer requires a shared pub/sub layer (Redis) before clients on
+  different instances see each other's events. See ADR-025.
+
+---
+
 ## [1.1.0] — 2026-06-09
 
 Adds a URL shortener to the API: create short links, resolve them with an
@@ -115,5 +165,6 @@ organizing, assigning, and tracking tasks, with secure JWT-based authentication.
   for PostgreSQL (see the [README](README.md)). Containerization and CI are
   planned for a future operations sprint.
 
+[1.2.0]: https://keepachangelog.com/en/1.1.0/
 [1.1.0]: https://keepachangelog.com/en/1.1.0/
 [1.0.0]: https://keepachangelog.com/en/1.1.0/

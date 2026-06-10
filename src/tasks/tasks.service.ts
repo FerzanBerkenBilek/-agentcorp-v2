@@ -1,6 +1,8 @@
 import { Task } from '@prisma/client';
 import { ValidationError } from '../shared/errors';
 import { Paginated, buildPageMeta } from '../shared/http';
+import { NOOP_PUBLISHER, TaskEventPublisher, TaskEventType } from '../shared/task-events';
+import { toTaskResponse } from '../shared/task-serializer';
 import { UsersRepository } from '../users/users.repository';
 import { assertCanAccess, assertIsOwner } from './tasks.policy';
 import {
@@ -18,15 +20,23 @@ import { CreateTaskInput, ListTasksQuery, UpdateTaskInput } from './tasks.schema
  * existence is validated against the users repository before any write (M5).
  * The caller's id (from the JWT) is the only trusted source of ownership — it
  * is never taken from the request body.
+ *
+ * After every successful mutation the service publishes a `TaskEvent` through
+ * the injected `TaskEventPublisher` port (ADR-025). The port is a pure-type
+ * dependency in `shared/`; the concrete `ConnectionHub` is injected at the
+ * composition root. The default is a no-op so WS-disabled runs are unaffected.
  */
 export class TasksService {
   /**
    * @param tasks Task repository (persistence).
    * @param users Users repository (assignee existence checks, M5).
+   * @param events Task event publisher (ADR-025); defaults to a no-op so the
+   *   tasks module and existing tests run without a WebSocket hub.
    */
   constructor(
     private readonly tasks: TasksRepository,
     private readonly users: UsersRepository,
+    private readonly events: TaskEventPublisher = NOOP_PUBLISHER,
   ) {}
 
   /**
@@ -49,7 +59,9 @@ export class TasksService {
       ownerId: userId,
       assigneeId: input.assigneeId ?? null,
     };
-    return this.tasks.create(data);
+    const task = await this.tasks.create(data);
+    this.emit('task.created', task);
+    return task;
   }
 
   /**
@@ -106,7 +118,9 @@ export class TasksService {
         await this.assertAssigneeExists(input.assigneeId);
       }
     }
-    return this.tasks.update(taskId, this.toUpdateData(input));
+    const updated = await this.tasks.update(taskId, this.toUpdateData(input));
+    this.emit('task.updated', updated);
+    return updated;
   }
 
   /**
@@ -119,8 +133,11 @@ export class TasksService {
    */
   async delete(userId: string, taskId: string): Promise<void> {
     const existing = await this.tasks.findById(taskId);
-    assertIsOwner(existing, userId);
+    const task = assertIsOwner(existing, userId);
     await this.tasks.delete(taskId);
+    // R15: publish the deleted task's last-known shape (the row is now gone) so
+    // the fan-out can authorize owner/assignee against that snapshot.
+    this.emit('task.deleted', task);
   }
 
   /**
@@ -153,5 +170,19 @@ export class TasksService {
       ...(input.priority !== undefined && { priority: input.priority }),
       ...('assigneeId' in input && { assigneeId: input.assigneeId }),
     };
+  }
+
+  /**
+   * Publish a task event through the injected port (ADR-025). Serializes via the
+   * shared `toTaskResponse` (R14 — one wire DTO, no extra fields) and stamps an
+   * ISO8601 timestamp. Fire-and-forget: the no-op default and the hub's
+   * per-socket error isolation mean this never throws or blocks the write path.
+   *
+   * @param type The event type.
+   * @param task The mutated (or deleted-snapshot) task.
+   * @returns void
+   */
+  private emit(type: TaskEventType, task: Task): void {
+    this.events.publish({ type, task: toTaskResponse(task), timestamp: new Date().toISOString() });
   }
 }

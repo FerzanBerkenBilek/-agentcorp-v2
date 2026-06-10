@@ -37,10 +37,39 @@ export async function csrfOriginGuard(
   if (config.CORS_ORIGINS.length === 0) {
     return;
   }
-  const source = request.headers.origin ?? deriveOrigin(request.headers.referer);
-  if (!source || !config.CORS_ORIGINS.includes(source)) {
+  const source = resolveRequestOrigin(request.headers.origin, request.headers.referer);
+  if (!isAllowedOrigin(source)) {
     throw new ForbiddenError('Cross-origin request rejected');
   }
+}
+
+/**
+ * Resolve the effective request origin from the Origin header, falling back to
+ * the Referer. Shared by the HTTP CSRF guard and the WS CSWSH check (ADR-027) so
+ * the origin-derivation logic exists in exactly one place (DRY).
+ *
+ * @param origin The raw Origin header value (may be undefined).
+ * @param referer The raw Referer header value (may be undefined).
+ * @returns The derived origin, or undefined if neither is present/parseable.
+ */
+export function resolveRequestOrigin(
+  origin: string | undefined,
+  referer: string | undefined,
+): string | undefined {
+  return origin ?? deriveOrigin(referer);
+}
+
+/**
+ * True if `origin` is on the configured CORS allowlist. The single allowlist
+ * membership test reused by HTTP and WS. An empty allowlist returns `false`
+ * here; each caller decides its empty-allowlist policy (HTTP skips, WS in
+ * production fails closed — ADR-027).
+ *
+ * @param origin The derived request origin (or undefined).
+ * @returns True iff a non-undefined origin is present and allowlisted.
+ */
+export function isAllowedOrigin(origin: string | undefined): boolean {
+  return origin !== undefined && config.CORS_ORIGINS.includes(origin);
 }
 
 /**

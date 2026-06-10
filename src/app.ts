@@ -21,6 +21,8 @@ import { UsersRepository } from './users/users.repository';
 import { publicUrlsRoutes, urlsRoutes } from './urls/urls.routes';
 import { UrlsRepository } from './urls/urls.repository';
 import { UrlsService } from './urls/urls.service';
+import { ConnectionHub } from './ws/connection-hub';
+import { wsRoutes } from './ws/ws.routes';
 
 /** Default authenticated rate limit: 100 requests/min per IP (ADR-014). */
 const GLOBAL_RATE_LIMIT_MAX = 100;
@@ -117,8 +119,12 @@ function registerModules(app: FastifyInstance): void {
   const tasksRepository = new TasksRepository(prisma);
   const urlsRepository = new UrlsRepository(prisma);
 
+  // ADR-025: one plain-singleton hub, injected as the task event publisher AND
+  // registered as the WS plugin's connection registry (the same instance).
+  const connectionHub = new ConnectionHub();
+
   const authService = new AuthService(usersRepository, authRepository);
-  const tasksService = new TasksService(tasksRepository, usersRepository);
+  const tasksService = new TasksService(tasksRepository, usersRepository, connectionHub);
   const urlsService = new UrlsService(urlsRepository);
 
   void app.register(authRoutes, { authService });
@@ -128,4 +134,7 @@ function registerModules(app: FastifyInstance): void {
   // the authenticated shorten/stats/delete routes (urlsRoutes, behind authGuard).
   void app.register(publicUrlsRoutes, { urlsService });
   void app.register(urlsRoutes, { urlsService });
+  // Real-time task updates: the WS upgrade endpoint (its own handshake auth via
+  // verifyAccessToken, NOT authGuard) wired to the shared hub (ADR-025).
+  void app.register(wsRoutes, { hub: connectionHub });
 }

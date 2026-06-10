@@ -22,6 +22,11 @@ export const AUDIT_ACTION = {
   TASK_DELETE: 'task.delete',
   URL_SHORTEN: 'url.shorten',
   URL_DELETE: 'url.delete',
+  WS_CONNECT: 'ws.connect',
+  WS_AUTH_FAILURE: 'ws.auth_failure',
+  WS_CAP_EXCEEDED: 'ws.cap_exceeded',
+  WS_FRAME_ABUSE: 'ws.frame_abuse',
+  WS_TOKEN_EXPIRED: 'ws.token_expired',
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTION)[keyof typeof AUDIT_ACTION];

@@ -25,6 +25,28 @@ function isAssignee(task: Pick<Task, 'assigneeId'>, userId: string): boolean {
 }
 
 /**
+ * Non-throwing owner-OR-assignee predicate (ADR-013 / ADR-028, DRY Refactor 2).
+ *
+ * This is the SINGLE source of the owner-or-assignee rule. The throwing
+ * `assertCanAccess` (404 semantics, used by the REST read/update paths) is
+ * built on it, and the WebSocket fan-out (`ConnectionHub.publish`) calls it
+ * directly — the push channel must test-and-skip a recipient, never throw a
+ * 404. The hub MUST NOT re-implement this logic (no duplication; code-quality
+ * enforces). For `task.deleted` the caller passes the owner/assigneeId snapshot
+ * captured at mutation time (R15), so a now-deleted row can still be authorized.
+ *
+ * @param task The task (or its owner/assignee snapshot).
+ * @param userId The candidate recipient's id.
+ * @returns True iff the user is the task's owner or current assignee.
+ */
+export function canAccessTask(
+  task: Pick<Task, 'ownerId' | 'assigneeId'>,
+  userId: string,
+): boolean {
+  return isOwner(task, userId) || isAssignee(task, userId);
+}
+
+/**
  * Assert the caller may VIEW or UPDATE the task (owner or assignee).
  *
  * @param task The task (or null if it does not exist).
@@ -36,7 +58,7 @@ export function assertCanAccess<T extends Pick<Task, 'ownerId' | 'assigneeId'>>(
   task: T | null,
   userId: string,
 ): T {
-  if (!task || (!isOwner(task, userId) && !isAssignee(task, userId))) {
+  if (!task || !canAccessTask(task, userId)) {
     throw new NotFoundError('Task');
   }
   return task;
