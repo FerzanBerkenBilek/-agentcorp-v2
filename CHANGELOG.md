@@ -5,6 +5,61 @@ All notable changes to the Task Management API are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] — 2026-06-11
+
+Adds **bulk task operations** — create, update, or delete up to **50 tasks in a
+single request**. Each bulk endpoint is a thin batch wrapper over the existing
+single-task logic, so the same authorization, validation, and task shape apply
+per item. Nothing about the single-task endpoints changes.
+
+### Added
+
+- **Three bulk task endpoints.** `POST /tasks/bulk-create`,
+  `PATCH /tasks/bulk-update`, and `DELETE /tasks/bulk-delete` each act on a batch
+  of up to **50 items** in one authenticated request, instead of 50 separate
+  calls. Bodies: bulk-create takes `{ items: [...] }` (each item the same as
+  `POST /tasks`), bulk-update takes `{ items: [{ id, ...fields }] }`, and
+  bulk-delete takes `{ ids: [...] }` (a flat UUID array). A malformed batch —
+  empty, more than 50 items, a non-array, or an unknown key — is rejected `422`
+  before any work runs. See the
+  [API reference](docs/api.md#bulk-task-operations).
+- **Partial-success contract (no rollback).** A well-formed batch always returns
+  `200 OK`, even if some — or all — items fail. The body reports each item's
+  outcome as `{ succeeded: TaskResponse[], failed: { id, reason }[] }`. Items are
+  processed independently: one item failing never rolls back or affects another,
+  and successful items are committed regardless. For bulk-create, a failed item is
+  identified by its array index; for update/delete, by its task id.
+- **Closed `failed.reason` enum.** A per-item failure carries a machine `reason`
+  code from a closed set — `NOT_FOUND`, `VALIDATION`, or `INTERNAL` — never a
+  human message, field path, or server detail.
+
+### Security
+
+- **Per-item authorization preserved — no IDOR at scale.** Each item runs through
+  the exact same object-level authorization as the single-task endpoints
+  (owner-or-assignee to update, owner-only to delete/reassign). A 50-item batch
+  cannot bypass, weaken, or amplify access control; it is 50 independently
+  authorized operations.
+- **`NOT_FOUND` collapses "missing" and "unauthorized" (ADR-042).** The per-item
+  `reason` deliberately makes a nonexistent task and a real-but-foreign task
+  byte-identical (`NOT_FOUND`), extending the API's 404-not-403 posture (ADR-013)
+  into the batch channel. This stops a batch of guessed UUIDs from being used as an
+  existence/ownership **enumeration oracle**. `reason` is always a code, never a
+  message; `INTERNAL` detail is logged server-side only and never reaches the
+  client.
+- **Rate limiting is weighted by batch size (ADR-043).** Bulk requests share the
+  existing 100/min global limiter, but an N-item batch consumes **N units, not 1**
+  — a 50-item batch costs 50. The weight is charged after the cap-50 check and
+  before per-item database work, so one cheap HTTP call cannot drive 50× the
+  database load. A hard per-request cap of **50 items** bounds amplification.
+
+### Notes / Known limitations
+
+- **No new dependencies, no schema or migration change.** Bulk operations reuse
+  the existing task model, service logic, and `@fastify/rate-limit` store (the
+  N-weighting is an encapsulated adapter over the installed plugin, pinned by a
+  version test — see ADR-043). No new tables, columns, or packages were added.
+
 ## [1.4.0] — 2026-06-11
 
 Adds **"Sign in with Google"** — OAuth2 social login alongside the existing
@@ -285,6 +340,8 @@ organizing, assigning, and tracking tasks, with secure JWT-based authentication.
   for PostgreSQL (see the [README](README.md)). Containerization and CI are
   planned for a future operations sprint.
 
+[1.5.0]: https://keepachangelog.com/en/1.1.0/
+[1.4.0]: https://keepachangelog.com/en/1.1.0/
 [1.3.0]: https://keepachangelog.com/en/1.1.0/
 [1.2.0]: https://keepachangelog.com/en/1.1.0/
 [1.1.0]: https://keepachangelog.com/en/1.1.0/

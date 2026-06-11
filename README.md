@@ -25,6 +25,7 @@ A REST API combining a JWT-secured **task manager** and an SSRF-hardened **URL s
 ### 📋 Task Management
 - JWT authentication with refresh-token rotation (and reuse detection)
 - Create, update, delete tasks
+- **Bulk operations** — create / update / delete up to 50 tasks per request, with per-item partial-success results (no rollback) and the same per-item authorization
 - Assign tasks to other users (assignees can view and update)
 - Filter by status (`TODO` / `IN_PROGRESS` / `DONE` / `CANCELLED`) and priority (`LOW` / `MEDIUM` / `HIGH` / `URGENT`)
 - Rate limiting, CSRF protection, audit logging
@@ -306,6 +307,9 @@ All responses use a uniform envelope — `{ "success": true, "data": ... }` or `
 | `GET` | `/tasks/:id` | Bearer | Global | Read a task (owner or assignee). |
 | `PATCH` | `/tasks/:id` | Bearer | Global | Update a task (reassign is owner-only). |
 | `DELETE` | `/tasks/:id` | Bearer | Global | Delete a task (owner only). |
+| `POST` | `/tasks/bulk-create` | Bearer | Global (N-weighted) | Create up to 50 tasks; partial-success result. |
+| `PATCH` | `/tasks/bulk-update` | Bearer | Global (N-weighted) | Update up to 50 tasks; partial-success result. |
+| `DELETE` | `/tasks/bulk-delete` | Bearer | Global (N-weighted) | Delete up to 50 tasks (owner-only per item); partial-success result. |
 | `GET` | `/users/me` | Bearer | Global | Authenticated user's profile. |
 | `POST` | `/shorten` | Bearer | 10 / min | Create a 6-char short code. |
 | `GET` | `/:code` | None | Global | Resolve a code; `302` redirect. |
@@ -313,7 +317,7 @@ All responses use a uniform envelope — `{ "success": true, "data": ... }` or `
 | `DELETE` | `/:code` | Bearer | Global | Delete a short code (owner only). |
 | `GET` | `/health` | None | Global | Liveness probe. |
 
-> Global default rate limit is **100 requests / min per IP**. Full schemas, error tables, and more examples are in [`docs/api.md`](docs/api.md).
+> Global default rate limit is **100 requests / min per IP**. The bulk task endpoints share this budget but are **weighted by batch size** — an N-item batch costs N units (ADR-042/043). Full schemas, error tables, and more examples are in [`docs/api.md`](docs/api.md).
 
 **Register:**
 ```bash
@@ -335,6 +339,14 @@ curl -X POST http://localhost:3000/tasks \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{"title":"Fix bug","priority":"HIGH","status":"TODO"}'
+```
+
+**Bulk-create tasks (up to 50):**
+```bash
+curl -X POST http://localhost:3000/tasks/bulk-create \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"items":[{"title":"First"},{"title":"Second","priority":"HIGH"}]}'
 ```
 
 **Shorten URL:**

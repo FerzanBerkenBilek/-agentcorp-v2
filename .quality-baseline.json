@@ -1,10 +1,10 @@
 {
-  "generated": "2026-06-10T15:56:26Z",
-  "version": "1.1.0",
+  "generated": "2026-06-11T00:00:00Z",
+  "version": "1.2.0",
   "coverage": {
-    "line_pct": 98.74,
-    "branch_pct": 95.0,
-    "function_pct": 98.17,
+    "line_pct": 99.02,
+    "branch_pct": 96.94,
+    "function_pct": 98.63,
     "threshold_line": 90,
     "threshold_branch": 85,
     "note": "Degradation below threshold = P1 finding"
@@ -37,9 +37,10 @@
       },
       {
         "file": "src/tasks/tasks.service.ts",
-        "complexity_points": 17,
-        "lines": 158,
-        "risk": "LOW"
+        "complexity_points": 25,
+        "lines": 427,
+        "risk": "LOW",
+        "note": "BULK-2026-06-11: +bulkCreate/Update/Delete + private runEach/runItem/classify + toUpdatePayload/toBulkFailureReason. Max per-function CC = 4 (well under 10). 427 lines is >300 acceptable threshold but ~58% is JSDoc; flagged P2 file-length watch in code-quality report, not a blocker."
       },
       {
         "file": "src/urls/urls.service.ts",
@@ -199,15 +200,24 @@
       },
       {
         "file": "src/tasks/tasks.routes.ts",
-        "complexity_points": 1,
-        "lines": 110,
-        "risk": "LOW"
+        "complexity_points": 5,
+        "lines": 174,
+        "risk": "LOW",
+        "note": "BULK-2026-06-11: +3 thin bulk handlers + buildBulkResponse (CC 4) + internalSink. No Prisma; authz orchestration stays in service."
       },
       {
         "file": "src/tasks/tasks.schemas.ts",
-        "complexity_points": 1,
-        "lines": 67,
-        "risk": "LOW"
+        "complexity_points": 2,
+        "lines": 142,
+        "risk": "LOW",
+        "note": "BULK-2026-06-11: +bulk* schemas; H6 fix split updateTaskObject (refine-free base, extendable) from updateTaskSchema."
+      },
+      {
+        "file": "src/shared/rate-limit-weight.ts",
+        "complexity_points": 5,
+        "lines": 117,
+        "risk": "LOW",
+        "note": "BULK-2026-06-11 / ADR-043: ONLY module coupling to @fastify/rate-limit internals; coupling cleanly fenced + commented + pin-tested. chargeAdditionalUnits CC 4, fail-closed."
       },
       {
         "file": "src/test/setup.ts",
@@ -242,9 +252,10 @@
     }
   },
   "source_files": {
-    "total": 36,
-    "test_files": 13,
-    "avg_lines": 91.7
+    "total": 37,
+    "test_files": 17,
+    "avg_lines": 97.0,
+    "note": "BULK-2026-06-11: +src/shared/rate-limit-weight.ts (1 source). New test files: rate-limit-weight.pin.test.ts, tasks.bulk-weight.integration.test.ts, tasks.bulk.service.smoke.test.ts, tasks.bulk-update-item-schema.test.ts. 501 tests green across 37 test files."
   },
   "known_debt": [
     {
@@ -262,6 +273,6 @@
       "resolution_plan": "Cover opportunistically if a bare-IPv6 accept case is ever added to the reject/accept matrix"
     }
   ],
-  "last_updated": "2026-06-10T15:56:26Z",
-  "updated_by": "GEL-5"
+  "last_updated": "2026-06-11T00:00:00Z",
+  "updated_by": "code-quality (BULK-2026-06-11)"
 }

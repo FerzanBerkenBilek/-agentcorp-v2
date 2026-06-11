@@ -29,6 +29,10 @@ REST API for the Task Management service.
   - [GET /:code](#get-code)
   - [GET /:code/stats](#get-codestats)
   - [DELETE /:code](#delete-code)
+- [Bulk Task Operations](#bulk-task-operations)
+  - [POST /tasks/bulk-create](#post-tasksbulk-create)
+  - [PATCH /tasks/bulk-update](#patch-tasksbulk-update)
+  - [DELETE /tasks/bulk-delete](#delete-tasksbulk-delete)
 - [Abuse Prevention & Admin](#abuse-prevention--admin)
   - [GET /admin/blocklist](#get-adminblocklist)
   - [POST /admin/blocklist](#post-adminblocklist)
@@ -141,12 +145,20 @@ Three environment variables must be configured (the process refuses to start wit
 | `GET /auth/google/callback` | 20 requests / 15 min per IP |
 | `POST /shorten` | 10 requests / min per IP |
 | `/admin/*` (each admin endpoint) | 60 requests / min per IP |
+| Bulk task endpoints (`/tasks/bulk-*`) | Global default, **weighted: an N-item batch costs N units** |
 | All authenticated endpoints (global default) | 100 requests / min per IP |
 
 > **Note on `POST /shorten`:** in addition to the per-IP rate limit above, each
 > authenticated user has a **per-user daily quota of 100 successful short links**
 > (see [Abuse Prevention & Admin](#abuse-prevention--admin)). The 101st link in a
 > UTC calendar day returns `429 RATE_LIMIT_EXCEEDED`.
+
+> **Note on bulk task endpoints (ADR-043):** the three `/tasks/bulk-*` endpoints
+> are charged against the **same** global 100/min limiter, but **weighted by batch
+> size** — a request of N items consumes **N units, not 1**. A 50-item batch costs
+> 50; so a user can spend their 100/min budget on, e.g., two full 50-item batches.
+> This is on top of the hard per-request cap of **50 items** (a 51-item batch is
+> rejected `422` before any work). See [Bulk Task Operations](#bulk-task-operations).
 
 ---
 
@@ -1082,6 +1094,346 @@ Delete a short code. **Owner only.** After deletion the redirect returns `404`.
 ```bash
 curl -i -X DELETE http://localhost:3000/aZ3xK9 \
   -H "Authorization: Bearer $ACCESS_TOKEN"
+```
+
+---
+
+## Bulk Task Operations
+
+Create, update, or delete up to **50 tasks in one request**. The three bulk
+endpoints exist so a client does not have to fire 50 separate HTTP calls (and pay
+50 round-trips) for a batch operation. They are thin batch wrappers over the
+existing single-task create / update / delete logic — **the same authorization,
+the same validation, the same wire shape** — applied once per item.
+
+- **Auth:** Bearer access token on every bulk endpoint (same token as the rest of
+  the task API; see [Authentication](#authentication)).
+- **Hard cap:** **1–50 items** per request. An empty batch, a 51+ item batch, a
+  non-array body, or an unknown key is rejected with `422 VALIDATION_ERROR`
+  **before any database work** — it never partially executes.
+- **Rate limit:** the global 100/min limiter, **weighted by batch size** — an
+  N-item batch consumes **N units, not 1** (see [Rate limiting by batch size](#rate-limiting-by-batch-size-adr-043) below).
+
+### Partial success — `200 OK` even when some items fail
+
+A bulk request **always returns `200 OK`** for a well-formed batch — even if every
+item fails. The body reports each item's individual outcome:
+
+```json
+{
+  "success": true,
+  "data": {
+    "succeeded": [ /* TaskResponse objects, same shape as GET /tasks/:id */ ],
+    "failed": [ { "id": "…", "reason": "NOT_FOUND" } ]
+  }
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `succeeded` | `TaskResponse[]` | The items that succeeded, each the **full task** in the same wire shape as [`GET /tasks/:id`](#get-tasksid). For bulk-delete, this is the deleted task's last-known snapshot. |
+| `failed` | `{ id, reason }[]` | One entry per failed item: its identifier and a closed-enum `reason` code. |
+
+**Items are independent — there is no rollback.** Each item is processed on its
+own: one item failing does **not** roll back, block, or affect any other item in
+the batch. The `succeeded` items are committed even if others in the same request
+`failed`. Items are processed in array order.
+
+> **Request-level failure vs per-item failure.** These are two different things.
+> A *malformed batch* (empty, 51+ items, non-array, non-UUID id, unknown key) is a
+> **whole-request `422 VALIDATION_ERROR`** raised before any item runs — nothing is
+> created or changed, and `failed[]` is never returned. The `failed[]` array carries
+> only *per-item business outcomes* for an otherwise well-formed batch (HTTP 200).
+
+### The `failed.reason` enum — a closed set of opaque codes (ADR-042)
+
+`reason` is a **machine code from a closed enum**, never a human message, field
+path, or server detail. There are exactly three values:
+
+| `reason` | Meaning |
+|---|---|
+| `NOT_FOUND` | The target task does not exist **or** the caller is not allowed to act on it (not owner/assignee for update; not owner for delete). **These two cases are deliberately indistinguishable.** |
+| `VALIDATION` | A per-item business-rule failure that is *not* existence-revealing — e.g. the item names an `assigneeId` that does not exist. The specific field text is **never** echoed. |
+| `INTERNAL` | An unexpected server-side error. The full detail is logged **server-side only**; the client receives only this flat token. |
+
+> **Why `NOT_FOUND` collapses "missing" and "unauthorized" (security rationale,
+> ADR-042).** This extends the API's existing 404-not-403 posture (ADR-013) into
+> the per-item channel. If the batch told you *why* an item failed — distinguishing
+> "this task id doesn't exist" from "it exists but isn't yours" — an attacker could
+> submit a batch of 50 guessed UUIDs and have the response **classify each one** as
+> missing vs. real-but-foreign vs. owned. That turns the bulk endpoint into an
+> existence/ownership **enumeration oracle**, amplified 50× per request. Collapsing
+> both into one byte-identical `NOT_FOUND` token closes that. For the same reason,
+> `reason` is always a **code, never a message**: a raw error string would leak
+> internal details (Prisma text, stack traces) or a user-enumeration signal (the
+> assignee-existence check), so `INTERNAL` detail is logged server-side and never
+> crosses the response boundary.
+
+> **Duplicate ids in a batch.** Items are processed in order; if the same id
+> appears twice (e.g. in bulk-delete), the second occurrence resolves naturally —
+> after the first deletes it, the second reports `NOT_FOUND`. There is no distinct
+> "duplicate" reason (that would itself be an oracle).
+
+### Rate limiting by batch size (ADR-043)
+
+The bulk endpoints share the existing **100 requests / min per user** global
+limiter (ADR-014), but a bulk request is **weighted by the number of items**: a
+batch of N items consumes **N units**, not 1. A 50-item batch costs 50 units; a
+3-item batch costs 3. The weight is charged **after** the cap-50 validation passes
+(so N is always between 1 and 50) and **before** the per-item database work, so a
+client cannot use one cheap HTTP call to drive 50× the database load — the
+DoS-amplification budget is the same whether the work arrives as 50 single calls
+or one 50-item batch. Exceeding the budget returns `429 RATE_LIMIT_EXCEEDED`.
+
+---
+
+### POST /tasks/bulk-create
+
+Create up to 50 tasks owned by the caller, in one request.
+
+- **Auth:** Bearer access token.
+- **Rate limit:** global, weighted — costs `items.length` units.
+
+**Request headers**
+
+| Header | Value | Required |
+|---|---|---|
+| `Authorization` | `Bearer <accessToken>` | Yes |
+| `Content-Type` | `application/json` | Yes |
+
+**Request body**
+
+| Field | Type | Required | Constraints |
+|---|---|---|---|
+| `items` | array | Yes | **1–50** elements. Each element is the **same body as [`POST /tasks`](#post-tasks)** (`title` required; `description`, `status`, `priority`, `assigneeId` optional). |
+
+`items` is the only accepted top-level key. Each element is `.strict()` — unknown
+keys (including any attempt to set `ownerId`) are rejected. `ownerId` is always set
+server-side from the JWT.
+
+**Per-item failure identifier:** create items have no client-supplied id, so a
+failed item is identified by its **array index as a string** (`"0"`, `"1"`, …).
+
+**Success — `200 OK`**
+
+```json
+{
+  "success": true,
+  "data": {
+    "succeeded": [
+      {
+        "id": "9a1c1234-5678-90ab-cdef-1234567890ab",
+        "title": "Write the runbook",
+        "description": null,
+        "status": "TODO",
+        "priority": "HIGH",
+        "ownerId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+        "assigneeId": null,
+        "createdAt": "2026-06-11T10:00:00.000Z",
+        "updatedAt": "2026-06-11T10:00:00.000Z"
+      }
+    ],
+    "failed": [
+      { "id": "1", "reason": "VALIDATION" }
+    ]
+  }
+}
+```
+
+In this example item `0` succeeded and item `1` failed `VALIDATION` (e.g. it named
+an `assigneeId` that does not exist).
+
+**Errors** (whole-request only — per-item failures are reported in `failed[]` with `200 OK`)
+
+| Status | `code` | Cause |
+|---|---|---|
+| `401` | `AUTH_ERROR` | Missing/invalid access token. |
+| `422` | `VALIDATION_ERROR` | `items` missing, empty, **more than 50 elements**, not an array, an element with a missing/invalid field, or an unknown key. |
+| `429` | `RATE_LIMIT_EXCEEDED` | The weighted batch cost exceeded the caller's 100/min budget. |
+
+**curl**
+
+```bash
+curl -i -X POST http://localhost:3000/tasks/bulk-create \
+  -H "Authorization: Bearer $ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+        "items": [
+          {"title":"Write the runbook","priority":"HIGH"},
+          {"title":"Review PR","status":"IN_PROGRESS"}
+        ]
+      }'
+```
+
+---
+
+### PATCH /tasks/bulk-update
+
+Update up to 50 tasks in one request. Each element targets a task by `id` and
+carries the same partial-update fields as [`PATCH /tasks/:id`](#patch-tasksid).
+
+- **Auth:** Bearer access token.
+- **Rate limit:** global, weighted — costs `items.length` units.
+- **Authorization (per item, ADR-013):** owner **or** assignee may change
+  `title`/`description`/`status`/`priority`; **only the owner** may reassign (an
+  element that includes the `assigneeId` key). A task the caller may not update —
+  or that does not exist — fails that item with `NOT_FOUND`.
+
+**Request headers**
+
+| Header | Value | Required |
+|---|---|---|
+| `Authorization` | `Bearer <accessToken>` | Yes |
+| `Content-Type` | `application/json` | Yes |
+
+**Request body**
+
+| Field | Type | Required | Constraints |
+|---|---|---|---|
+| `items` | array | Yes | **1–50** elements. |
+
+Each element of `items`:
+
+| Field | Type | Required | Constraints |
+|---|---|---|---|
+| `id` | string (UUID) | Yes | The target task's UUID. |
+| `title` | string | No | 1–255 chars. |
+| `description` | string \| null | No | `null` clears the description. |
+| `status` | TaskStatus enum | No | — |
+| `priority` | TaskPriority enum | No | — |
+| `assigneeId` | string (UUID) \| null | No | UUID of an existing user, or `null` to unassign. Owner-only. |
+
+Each element is `.strict()` and must carry **`id` plus at least one update field**
+(an element with only `id` is rejected `422`). Unknown keys are rejected.
+
+**Per-item failure identifier:** the task **`id`**.
+
+**Success — `200 OK`** — `succeeded[]` holds each updated task (full shape, as
+[`GET /tasks/:id`](#get-tasksid)); `failed[]` holds `{ id, reason }` per failed item.
+
+```json
+{
+  "success": true,
+  "data": {
+    "succeeded": [
+      {
+        "id": "9a1c1234-5678-90ab-cdef-1234567890ab",
+        "title": "Write the runbook",
+        "description": null,
+        "status": "DONE",
+        "priority": "HIGH",
+        "ownerId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+        "assigneeId": null,
+        "createdAt": "2026-06-11T10:00:00.000Z",
+        "updatedAt": "2026-06-11T12:30:00.000Z"
+      }
+    ],
+    "failed": [
+      { "id": "7c9e6679-7425-40de-944b-e07fc1f90ae7", "reason": "NOT_FOUND" }
+    ]
+  }
+}
+```
+
+**Errors** (whole-request only)
+
+| Status | `code` | Cause |
+|---|---|---|
+| `401` | `AUTH_ERROR` | Missing/invalid access token. |
+| `422` | `VALIDATION_ERROR` | `items` missing, empty, **more than 50 elements**, not an array, an element missing `id` or with no update field, a non-UUID `id`, a bad enum, or an unknown key. |
+| `429` | `RATE_LIMIT_EXCEEDED` | The weighted batch cost exceeded the caller's 100/min budget. |
+
+**curl**
+
+```bash
+curl -i -X PATCH http://localhost:3000/tasks/bulk-update \
+  -H "Authorization: Bearer $ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+        "items": [
+          {"id":"9a1c1234-5678-90ab-cdef-1234567890ab","status":"DONE"},
+          {"id":"7c9e6679-7425-40de-944b-e07fc1f90ae7","priority":"URGENT"}
+        ]
+      }'
+```
+
+---
+
+### DELETE /tasks/bulk-delete
+
+Delete up to 50 tasks in one request. **Owner-only per item** (ADR-013).
+
+- **Auth:** Bearer access token.
+- **Rate limit:** global, weighted — costs `ids.length` units.
+
+**Request headers**
+
+| Header | Value | Required |
+|---|---|---|
+| `Authorization` | `Bearer <accessToken>` | Yes |
+| `Content-Type` | `application/json` | Yes |
+
+**Request body**
+
+| Field | Type | Required | Constraints |
+|---|---|---|---|
+| `ids` | array of string (UUID) | Yes | **1–50** task UUIDs. |
+
+`ids` is the only accepted key. A non-UUID element, an empty array, more than 50
+ids, or an unknown key is rejected `422`. Note the body key is **`ids`** (a flat
+UUID array), not `items`.
+
+**Per-item failure identifier:** the task **`id`**. A task the caller does not own —
+or that does not exist — fails that item with `NOT_FOUND` (indistinguishable).
+
+**Success — `200 OK`** — `succeeded[]` holds the **last-known snapshot** of each
+deleted task (so the response is a uniform `TaskResponse[]`); `failed[]` holds
+`{ id, reason }` per failed item.
+
+```json
+{
+  "success": true,
+  "data": {
+    "succeeded": [
+      {
+        "id": "9a1c1234-5678-90ab-cdef-1234567890ab",
+        "title": "Write the runbook",
+        "description": null,
+        "status": "DONE",
+        "priority": "HIGH",
+        "ownerId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+        "assigneeId": null,
+        "createdAt": "2026-06-11T10:00:00.000Z",
+        "updatedAt": "2026-06-11T12:30:00.000Z"
+      }
+    ],
+    "failed": [
+      { "id": "7c9e6679-7425-40de-944b-e07fc1f90ae7", "reason": "NOT_FOUND" }
+    ]
+  }
+}
+```
+
+**Errors** (whole-request only)
+
+| Status | `code` | Cause |
+|---|---|---|
+| `401` | `AUTH_ERROR` | Missing/invalid access token. |
+| `422` | `VALIDATION_ERROR` | `ids` missing, empty, **more than 50 elements**, not an array, a non-UUID element, or an unknown key. |
+| `429` | `RATE_LIMIT_EXCEEDED` | The weighted batch cost exceeded the caller's 100/min budget. |
+
+**curl**
+
+```bash
+curl -i -X DELETE http://localhost:3000/tasks/bulk-delete \
+  -H "Authorization: Bearer $ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+        "ids": [
+          "9a1c1234-5678-90ab-cdef-1234567890ab",
+          "7c9e6679-7425-40de-944b-e07fc1f90ae7"
+        ]
+      }'
 ```
 
 ---
