@@ -1,4 +1,6 @@
-import { BlockedDomain, FlaggedUrl, FlagState, PrismaClient } from '@prisma/client';
+import { BlockedDomain, FlaggedUrl, FlagState, Prisma, PrismaClient } from '@prisma/client';
+import { ConflictError } from '../shared/errors';
+import { err, ok, Result } from '../shared/result';
 import { prisma } from '../shared/prisma';
 
 /**
@@ -59,13 +61,24 @@ export class AdminRepository {
 
   /**
    * Insert a blocklist entry. UNIQUE(domain) is the authoritative idempotency
-   * guard; a duplicate surfaces as Prisma P2002, which the service maps to 409.
+   * guard; a duplicate surfaces as Prisma P2002, which this method catches and
+   * returns as `err(ConflictError)` (ADR-044) so the service unwraps it to a 409.
+   * Any non-P2002 error is rethrown unchanged.
    *
    * @param data Canonical domain, optional note, and server-set curator id.
-   * @returns The created blocklist entry.
+   * @returns ok(BlockedDomain) on success, or err(ConflictError) if already blocked.
    */
-  async addBlockedDomain(data: CreateBlockedDomainData): Promise<BlockedDomain> {
-    return this.db.blockedDomain.create({ data });
+  async addBlockedDomain(
+    data: CreateBlockedDomainData,
+  ): Promise<Result<BlockedDomain, ConflictError>> {
+    try {
+      return ok(await this.db.blockedDomain.create({ data }));
+    } catch (error) {
+      if (isUniqueViolation(error)) {
+        return err(new ConflictError('Domain is already on the blocklist'));
+      }
+      throw error;
+    }
   }
 
   /**
@@ -147,4 +160,15 @@ export class AdminRepository {
   async deleteFlagged(id: string): Promise<void> {
     await this.db.flaggedUrl.delete({ where: { id } });
   }
+}
+
+/**
+ * True if the error is a Prisma unique-constraint (P2002) violation — i.e. a
+ * duplicate blocklist domain the create seam converts to a ConflictError (ADR-044).
+ *
+ * @param error The caught error.
+ * @returns True if it is a P2002 known-request error.
+ */
+function isUniqueViolation(error: unknown): boolean {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
 }

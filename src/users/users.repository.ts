@@ -1,4 +1,6 @@
-import { PrismaClient, User } from '@prisma/client';
+import { Prisma, PrismaClient, User } from '@prisma/client';
+import { ConflictError } from '../shared/errors';
+import { err, ok, Result } from '../shared/result';
 import { prisma } from '../shared/prisma';
 
 /**
@@ -92,13 +94,23 @@ export class UsersRepository {
 
   /**
    * Create a new user. Email must already be lowercased and uniqueness-checked
-   * by the caller; the DB unique constraint is the final guard.
+   * by the caller; the DB unique constraint is the final guard. A UNIQUE(email)
+   * violation surfaces as Prisma P2002, which this method catches and returns as
+   * `err(ConflictError)` (ADR-044) so the service unwraps it to a 409. Any
+   * non-P2002 error is rethrown unchanged.
    *
    * @param data The new user's email, passwordHash, and name.
-   * @returns The created public user (no passwordHash).
+   * @returns ok(PublicUser) on success, or err(ConflictError) if the email exists.
    */
-  async create(data: CreateUserData): Promise<PublicUser> {
-    return this.db.user.create({ data, select: PUBLIC_USER_SELECT });
+  async create(data: CreateUserData): Promise<Result<PublicUser, ConflictError>> {
+    try {
+      return ok(await this.db.user.create({ data, select: PUBLIC_USER_SELECT }));
+    } catch (error) {
+      if (isUniqueViolation(error)) {
+        return err(new ConflictError('Email address is already registered'));
+      }
+      throw error;
+    }
   }
 
   /**
@@ -120,11 +132,23 @@ export class UsersRepository {
    * takeover backstop). The supplied `passwordHash` is a non-matching dummy so
    * the account cannot password-login (G7).
    *
+   * A UNIQUE(email) or UNIQUE(google_id) violation surfaces as Prisma P2002,
+   * which this method catches and returns as `err(ConflictError)` (ADR-044, the
+   * G6 takeover backstop) so the service unwraps it to a 409. Any non-P2002 error
+   * is rethrown unchanged.
+   *
    * @param data Email, dummy passwordHash, name, googleId, googleEmail.
-   * @returns The created public user (no passwordHash).
+   * @returns ok(PublicUser) on success, or err(ConflictError) on a unique race (G6).
    */
-  async createFromOAuth(data: CreateOAuthUserData): Promise<PublicUser> {
-    return this.db.user.create({ data, select: PUBLIC_USER_SELECT });
+  async createFromOAuth(data: CreateOAuthUserData): Promise<Result<PublicUser, ConflictError>> {
+    try {
+      return ok(await this.db.user.create({ data, select: PUBLIC_USER_SELECT }));
+    } catch (error) {
+      if (isUniqueViolation(error)) {
+        return err(new ConflictError('This Google account cannot be linked'));
+      }
+      throw error;
+    }
   }
 
   /**
@@ -158,4 +182,15 @@ export class UsersRepository {
     }
     return this.findPublicById(userId);
   }
+}
+
+/**
+ * True if the error is a Prisma unique-constraint (P2002) violation — i.e. a
+ * duplicate email/google_id the create seam converts to a ConflictError (ADR-044).
+ *
+ * @param error The caught error.
+ * @returns True if it is a P2002 known-request error.
+ */
+function isUniqueViolation(error: unknown): boolean {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
 }

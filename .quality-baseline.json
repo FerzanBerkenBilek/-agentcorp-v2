@@ -1,13 +1,13 @@
 {
   "generated": "2026-06-11T00:00:00Z",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "coverage": {
-    "line_pct": 99.02,
-    "branch_pct": 96.94,
-    "function_pct": 98.63,
+    "line_pct": 99.30,
+    "branch_pct": 97.35,
+    "function_pct": 99.10,
     "threshold_line": 90,
     "threshold_branch": 85,
-    "note": "Degradation below threshold = P1 finding"
+    "note": "FIX-IT-2026-06-11: RESTORED post-fix coverage recorded as new baseline (CLAUDE.md 'overall coverage improves -> update'). The ADR-044 refactor relocated P2002 conflict mapping into the 3 repos, temporarily dropping repo branch coverage; qa-engineer added 3 repository test files (urls/users/admin .repository.test.ts, 15 tests) covering the P2002->err and non-P2002->rethrow branches. The 3 repos are now 100% branch. Coverage rose ABOVE the pre-refactor baseline (was line 99.02 / branch 96.94 / function 98.63). Degradation below threshold = P1 finding."
   },
   "complexity": {
     "files": [
@@ -25,9 +25,10 @@
       },
       {
         "file": "src/auth/auth.service.ts",
-        "complexity_points": 22,
-        "lines": 212,
-        "risk": "LOW"
+        "complexity_points": 23,
+        "lines": 217,
+        "risk": "LOW",
+        "note": "REFACTOR-RESULT-2026-06-11 (ADR-044): createOAuthAccount unwraps users.createFromOAuth Result (+1 if(!r.ok) branch); guardUniqueGoogleId RETAINED (still used by linkExistingAccount->linkGoogleAccount STAY path). Max per-function CC = 4 (guardUniqueGoogleId). +1 file CC = +4.5% vs baseline, far under the 50% gate."
       },
       {
         "file": "src/tasks/tasks.repository.ts",
@@ -44,9 +45,10 @@
       },
       {
         "file": "src/urls/urls.service.ts",
-        "complexity_points": 15,
-        "lines": 131,
-        "risk": "LOW"
+        "complexity_points": 12,
+        "lines": 116,
+        "risk": "LOW",
+        "note": "REFACTOR-RESULT-2026-06-11 (ADR-044): IMPROVEMENT. insertWithRetry try/catch+if replaced by a single if(r.ok) on the Result; dead local isUniqueViolation helper + PRISMA_UNIQUE_VIOLATION const + Prisma import removed. File CC 15->12 (-20%). Max per-function CC = 3 (shorten)."
       },
       {
         "file": "src/shared/csrf.ts",
@@ -68,9 +70,10 @@
       },
       {
         "file": "src/users/users.repository.ts",
-        "complexity_points": 8,
-        "lines": 79,
-        "risk": "LOW"
+        "complexity_points": 11,
+        "lines": 197,
+        "risk": "LOW",
+        "note": "REFACTOR-RESULT-2026-06-11 (ADR-044): create + createFromOAuth now catch P2002 -> err(ConflictError) (each +try/catch+if = CC 3); +1 local isUniqueViolation helper (CC 2). linkGoogleAccount STAY. File CC 8->11 (+37.5%, under the 50% gate). Max per-function CC = 3. Line growth is JSDoc (Result contract docs), not logic."
       },
       {
         "file": "src/shared/audit.ts",
@@ -140,9 +143,10 @@
       },
       {
         "file": "src/urls/urls.repository.ts",
-        "complexity_points": 3,
-        "lines": 70,
-        "risk": "LOW"
+        "complexity_points": 9,
+        "lines": 106,
+        "risk": "LOW",
+        "note": "REFACTOR-RESULT-2026-06-11 (ADR-044): create now catches P2002 -> err(ConflictError) (+try/catch+if = CC 3); +1 local isUniqueViolation helper (CC 2). Other 4 methods STAY (CC 1 each). File CC 3->9; absolute delta tiny, max per-function CC = 3 (create). The seam moved the conflict-mapping FROM the service (CC dropped there) INTO the repo — net system complexity flat."
       },
       {
         "file": "src/urls/urls.routes.ts",
@@ -161,6 +165,20 @@
         "complexity_points": 2,
         "lines": 70,
         "risk": "LOW"
+      },
+      {
+        "file": "src/admin/admin.repository.ts",
+        "complexity_points": 9,
+        "lines": 175,
+        "risk": "LOW",
+        "note": "REFACTOR-RESULT-2026-06-11 (ADR-044): NEW baseline entry (not separately tracked before — was additive watch). addBlockedDomain now catches P2002 -> err(ConflictError) (CC 3); +1 local isUniqueViolation helper (CC 2). All other 7 methods STAY (CC 1 each). Max per-function CC = 3."
+      },
+      {
+        "file": "src/shared/result.ts",
+        "complexity_points": 1,
+        "lines": 41,
+        "risk": "LOW",
+        "note": "REFACTOR-RESULT-2026-06-11 (ADR-044): NEW. Result<T,E> discriminated union + ok + err constructors only. Zero branches (CC 1 total, ok/err are straight-line returns). No speculative unwrap/map/andThen slop — the sanctioned future transport, used today only at the 4 P2002 create seams."
       },
       {
         "file": "src/auth/auth.schemas.ts",
@@ -252,10 +270,11 @@
     }
   },
   "source_files": {
-    "total": 37,
-    "test_files": 17,
+    "total": 38,
+    "test_files": 43,
+    "test_count": 558,
     "avg_lines": 97.0,
-    "note": "BULK-2026-06-11: +src/shared/rate-limit-weight.ts (1 source). New test files: rate-limit-weight.pin.test.ts, tasks.bulk-weight.integration.test.ts, tasks.bulk.service.smoke.test.ts, tasks.bulk-update-item-schema.test.ts. 501 tests green across 37 test files."
+    "note": "FIX-IT-2026-06-11 (post ADR-044): test count corrected 543/40 -> 558/43. qa-engineer added 3 NEW repository test files to restore the P1 branch-coverage drop that code-quality + qa flagged after the refactor relocated P2002 conflict mapping into the repos: src/urls/urls.repository.test.ts (4 tests), src/users/users.repository.test.ts (7 tests), src/admin/admin.repository.test.ts (4 tests) = 15 new tests / 3 new files. These cover the relocated repo-level P2002->err(ConflictError) and non-P2002->rethrow branches; the 3 repos are now 100% branch. New test files spot-checked: zero ': any'/'as any'; each uses 'as unknown as PrismaClient' once at the injection boundary only (sanctioned pattern). Slop script re-run: CLEAN, 0 P1 / 0 P2, 55 TS files scanned. 'total' (38) counts non-test source modules (unchanged); test_files (43) counts *.test.ts."
   },
   "known_debt": [
     {
@@ -273,6 +292,6 @@
       "resolution_plan": "Cover opportunistically if a bare-IPv6 accept case is ever added to the reject/accept matrix"
     }
   ],
-  "last_updated": "2026-06-11T00:00:00Z",
-  "updated_by": "code-quality (BULK-2026-06-11)"
+  "last_updated": "2026-06-11",
+  "updated_by": "code-quality (FIX-IT-2026-06-11: coverage-restore finalization; test count 558/43, coverage improved, known_debt unchanged)"
 }

@@ -1,6 +1,7 @@
-import { BlockedDomain, FlaggedUrl, FlagState, Prisma } from '@prisma/client';
+import { BlockedDomain, FlaggedUrl, FlagState } from '@prisma/client';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConflictError, NotFoundError, ValidationError } from '../shared/errors';
+import { err, ok } from '../shared/result';
 import type { UrlsService } from '../urls/urls.service';
 import { AdminService } from './admin.service';
 import type { AdminRepository } from './admin.repository';
@@ -15,15 +16,6 @@ import type { AdminRepository } from './admin.repository';
 const ADMIN_ID = 'admin-1111';
 const OWNER_ID = 'owner-2222';
 const FLAG_ID = '99999999-9999-9999-9999-999999999999';
-
-/** A real Prisma P2002 (unique-violation) — what UNIQUE(domain) raises. */
-function uniqueViolation(): Prisma.PrismaClientKnownRequestError {
-  return new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
-    code: 'P2002',
-    clientVersion: 'test',
-    meta: { target: ['domain'] },
-  });
-}
 
 function makeFlagged(overrides: Partial<FlaggedUrl> = {}): FlaggedUrl {
   return {
@@ -72,7 +64,7 @@ beforeEach(() => {
 
 describe('AdminService.addToBlocklist', () => {
   it('should_canonicalize_the_domain_before_persisting', async () => {
-    m.repo.addBlockedDomain.mockResolvedValue({} as BlockedDomain);
+    m.repo.addBlockedDomain.mockResolvedValue(ok({} as BlockedDomain));
 
     await m.service.addToBlocklist(ADMIN_ID, 'WWW.EVIL.com.', 'bad');
 
@@ -84,7 +76,7 @@ describe('AdminService.addToBlocklist', () => {
   });
 
   it('should_set_addedByUserId_from_the_admin_argument_not_input', async () => {
-    m.repo.addBlockedDomain.mockResolvedValue({} as BlockedDomain);
+    m.repo.addBlockedDomain.mockResolvedValue(ok({} as BlockedDomain));
 
     await m.service.addToBlocklist(ADMIN_ID, 'evil.com');
 
@@ -92,7 +84,7 @@ describe('AdminService.addToBlocklist', () => {
   });
 
   it('should_throw_ConflictError_on_a_duplicate_domain', async () => {
-    m.repo.addBlockedDomain.mockRejectedValue(uniqueViolation());
+    m.repo.addBlockedDomain.mockResolvedValue(err(new ConflictError('Domain is already on the blocklist')));
 
     await expect(m.service.addToBlocklist(ADMIN_ID, 'evil.com')).rejects.toBeInstanceOf(
       ConflictError,

@@ -1,4 +1,6 @@
-import { PrismaClient, ShortUrl } from '@prisma/client';
+import { Prisma, PrismaClient, ShortUrl } from '@prisma/client';
+import { ConflictError } from '../shared/errors';
+import { err, ok, Result } from '../shared/result';
 import { prisma } from '../shared/prisma';
 
 /** Fields persisted on short-URL creation (code + ownerId are server-set). */
@@ -20,14 +22,23 @@ export class UrlsRepository {
 
   /**
    * Insert a short URL. The UNIQUE(code) constraint is the authoritative
-   * collision guard; a duplicate code surfaces as Prisma error P2002, which the
-   * service catches to retry (ADR-022). This method does not catch it.
+   * collision guard; a duplicate code surfaces as Prisma error P2002, which this
+   * method catches and returns as `err(ConflictError)` (ADR-044) so the service's
+   * insert-retry branches on the value instead of catching a throw (ADR-022).
+   * Any non-P2002 error is rethrown unchanged.
    *
    * @param data Code, validated originalUrl, and server-set ownerId.
-   * @returns The created short URL.
+   * @returns ok(ShortUrl) on success, or err(ConflictError) on a code collision.
    */
-  async create(data: CreateShortUrlData): Promise<ShortUrl> {
-    return this.db.shortUrl.create({ data });
+  async create(data: CreateShortUrlData): Promise<Result<ShortUrl, ConflictError>> {
+    try {
+      return ok(await this.db.shortUrl.create({ data }));
+    } catch (error) {
+      if (isUniqueViolation(error)) {
+        return err(new ConflictError('Could not allocate a unique short code, please retry'));
+      }
+      throw error;
+    }
   }
 
   /**
@@ -81,4 +92,15 @@ export class UrlsRepository {
   async delete(code: string): Promise<void> {
     await this.db.shortUrl.delete({ where: { code } });
   }
+}
+
+/**
+ * True if the error is a Prisma unique-constraint (P2002) violation — i.e. a
+ * short-code collision the create seam converts to a ConflictError (ADR-044).
+ *
+ * @param error The caught error.
+ * @returns True if it is a P2002 known-request error.
+ */
+function isUniqueViolation(error: unknown): boolean {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
 }

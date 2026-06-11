@@ -1,6 +1,7 @@
-import { Prisma, ShortUrl } from '@prisma/client';
+import { ShortUrl } from '@prisma/client';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConflictError, NotFoundError, ValidationError } from '../shared/errors';
+import { err, ok } from '../shared/result';
 import { assertSafeUrl } from '../shared/url-safety';
 import { generateShortCode } from '../shared/short-code';
 import { UrlsService, MAX_INSERT_RETRIES, DAILY_QUOTA, QuotaExceededError } from './urls.service';
@@ -45,15 +46,6 @@ function makeShortUrl(overrides: Partial<ShortUrl> = {}): ShortUrl {
   };
 }
 
-/** A real Prisma P2002 (unique-violation) error — what UNIQUE(code) raises. */
-function uniqueViolation(): Prisma.PrismaClientKnownRequestError {
-  return new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
-    code: 'P2002',
-    clientVersion: 'test',
-    meta: { target: ['code'] },
-  });
-}
-
 function makeMocks(): {
   service: UrlsService;
   repo: {
@@ -89,7 +81,7 @@ beforeEach(() => {
 describe('UrlsService.shorten', () => {
   it('should_validate_the_url_via_assertSafeUrl_before_persisting', async () => {
     const m = makeMocks();
-    m.repo.create.mockResolvedValue(makeShortUrl());
+    m.repo.create.mockResolvedValue(ok(makeShortUrl()));
 
     await m.service.shorten(CALLER, RAW_URL);
 
@@ -100,7 +92,7 @@ describe('UrlsService.shorten', () => {
 
   it('should_set_ownerId_from_the_caller_argument_not_from_input', async () => {
     const m = makeMocks();
-    m.repo.create.mockResolvedValue(makeShortUrl());
+    m.repo.create.mockResolvedValue(ok(makeShortUrl()));
 
     await m.service.shorten(CALLER, RAW_URL);
 
@@ -122,8 +114,8 @@ describe('UrlsService.shorten', () => {
     const m = makeMocks();
     generateShortCodeMock.mockReturnValueOnce('Coll01').mockReturnValueOnce('Uniq02');
     m.repo.create
-      .mockRejectedValueOnce(uniqueViolation())
-      .mockResolvedValueOnce(makeShortUrl({ code: 'Uniq02' }));
+      .mockResolvedValueOnce(err(new ConflictError('Could not allocate a unique short code, please retry')))
+      .mockResolvedValueOnce(ok(makeShortUrl({ code: 'Uniq02' })));
 
     const outcome = await m.service.shorten(CALLER, RAW_URL);
 
@@ -134,7 +126,7 @@ describe('UrlsService.shorten', () => {
 
   it('should_throw_ConflictError_after_exhausting_retries_on_persistent_collision', async () => {
     const m = makeMocks();
-    m.repo.create.mockRejectedValue(uniqueViolation());
+    m.repo.create.mockResolvedValue(err(new ConflictError('Could not allocate a unique short code, please retry')));
 
     await expect(m.service.shorten(CALLER, RAW_URL)).rejects.toBeInstanceOf(ConflictError);
     expect(m.repo.create).toHaveBeenCalledTimes(MAX_INSERT_RETRIES);
@@ -163,7 +155,7 @@ describe('UrlsService.shorten — daily quota (R24)', () => {
   it('should_allow_the_request_when_just_under_the_quota', async () => {
     const m = makeMocks();
     m.repo.countCreatedSince.mockResolvedValue(DAILY_QUOTA - 1);
-    m.repo.create.mockResolvedValue(makeShortUrl());
+    m.repo.create.mockResolvedValue(ok(makeShortUrl()));
 
     const outcome = await m.service.shorten(CALLER, RAW_URL);
 
@@ -172,7 +164,7 @@ describe('UrlsService.shorten — daily quota (R24)', () => {
 
   it('should_count_only_the_caller_links_since_utc_midnight', async () => {
     const m = makeMocks();
-    m.repo.create.mockResolvedValue(makeShortUrl());
+    m.repo.create.mockResolvedValue(ok(makeShortUrl()));
 
     await m.service.shorten(CALLER, RAW_URL);
 
@@ -209,7 +201,7 @@ describe('UrlsService.shorten — screen verdicts (ADR-034/035)', () => {
 
   it('should_run_the_screen_strictly_after_assertSafeUrl', async () => {
     const m = makeMocks();
-    m.repo.create.mockResolvedValue(makeShortUrl());
+    m.repo.create.mockResolvedValue(ok(makeShortUrl()));
 
     await m.service.shorten(CALLER, RAW_URL);
 
@@ -222,7 +214,7 @@ describe('UrlsService.shorten — screen verdicts (ADR-034/035)', () => {
 describe('UrlsService.createApproved', () => {
   it('should_mint_a_short_url_without_screening_or_quota_check', async () => {
     const m = makeMocks();
-    m.repo.create.mockResolvedValue(makeShortUrl());
+    m.repo.create.mockResolvedValue(ok(makeShortUrl()));
 
     const url = await m.service.createApproved(CALLER, SAFE_URL);
 

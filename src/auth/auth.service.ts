@@ -78,8 +78,11 @@ export class AuthService {
       throw new ConflictError('Email address is already registered');
     }
     const passwordHash = await bcrypt.hash(input.password, config.BCRYPT_ROUNDS);
-    const user = await this.users.create({ email, passwordHash, name: input.name });
-    return this.issueNewSession(user);
+    const r = await this.users.create({ email, passwordHash, name: input.name });
+    if (!r.ok) {
+      throw r.error;
+    }
+    return this.issueNewSession(r.value);
   }
 
   /**
@@ -184,17 +187,22 @@ export class AuthService {
     identity: GoogleIdentity,
     email: string,
   ): Promise<GoogleLoginResult> {
-    const user = await this.guardUniqueGoogleId(() =>
-      this.users.createFromOAuth({
-        email,
-        // G7: a non-matching dummy hash → the account can never password-login.
-        passwordHash: OAUTH_PLACEHOLDER_PASSWORD_HASH,
-        name: identity.name ?? email,
-        googleId: identity.sub,
-        googleEmail: email,
-      }),
-    );
-    return this.completeGoogleLogin(user, 'create');
+    // The repo now returns the UNIQUE(google_id/email) violation as
+    // err(ConflictError) (ADR-044, G6 backstop) rather than throwing P2002, so we
+    // unwrap here instead of relying on guardUniqueGoogleId. A non-P2002 error
+    // still throws from the repo and propagates unchanged.
+    const r = await this.users.createFromOAuth({
+      email,
+      // G7: a non-matching dummy hash → the account can never password-login.
+      passwordHash: OAUTH_PLACEHOLDER_PASSWORD_HASH,
+      name: identity.name ?? email,
+      googleId: identity.sub,
+      googleEmail: email,
+    });
+    if (!r.ok) {
+      throw r.error;
+    }
+    return this.completeGoogleLogin(r.value, 'create');
   }
 
   /**

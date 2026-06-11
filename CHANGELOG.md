@@ -5,6 +5,27 @@ All notable changes to the Task Management API are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Internal
+
+- **Repository conflict seam now returns `Result<T, E>` instead of throwing
+  (ADR-044).** The four unique-constraint create methods — `urls.create`,
+  `admin.addBlockedDomain`, `users.create`, and `users.createFromOAuth` — now
+  return an explicit `Result<T, ConflictError>` (new `src/shared/result.ts`: a
+  `Result<T, E>` discriminated union plus `ok`/`err` constructors) rather than
+  letting a Prisma `P2002` unique-violation propagate. Each repository catches
+  `P2002` internally and returns `err(new ConflictError(...))`, rethrowing any
+  non-`P2002` error unchanged; the owning services unwrap the `Result` and throw
+  the **same** typed domain errors upward. **No API or behaviour change** — the
+  `404` not-found and `409` conflict responses are byte-identical, with the same
+  error messages and status codes as before. Reads, probes, count-mutations, and
+  all dead-guarded `P2025` paths were intentionally left as-is (they already
+  return `T | null` / `boolean` / `number`, where the value itself is the
+  signal). This is a type-safety and maintainability change at the repository
+  boundary only. No new dependencies, no schema or migration change. (558 tests
+  pass — 15 new repository-level tests cover the relocated conflict branches.)
+
 ## [1.5.0] — 2026-06-11
 
 Adds **bulk task operations** — create, update, or delete up to **50 tasks in a

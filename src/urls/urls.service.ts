@@ -1,4 +1,4 @@
-import { Prisma, ShortUrl } from '@prisma/client';
+import { ShortUrl } from '@prisma/client';
 import { AppError, ConflictError, ERROR_CODE, HTTP_STATUS } from '../shared/errors';
 import { generateShortCode } from '../shared/short-code';
 import { assertSafeUrl } from '../shared/url-safety';
@@ -11,9 +11,6 @@ export const MAX_INSERT_RETRIES = 5;
 
 /** Per-user calendar-day-UTC short-URL quota (ADR-032, R24). 101st is rejected. */
 export const DAILY_QUOTA = 100;
-
-/** Prisma unique-constraint violation code (raised by UNIQUE(code)). */
-const PRISMA_UNIQUE_VIOLATION = 'P2002';
 
 /**
  * 429 — the per-user daily short-URL quota is exhausted (R24). A distinct type
@@ -186,12 +183,11 @@ export class UrlsService {
    */
   private async insertWithRetry(originalUrl: string, ownerId: string): Promise<ShortUrl> {
     for (let attempt = 0; attempt < MAX_INSERT_RETRIES; attempt += 1) {
-      try {
-        return await this.urls.create({ code: generateShortCode(), originalUrl, ownerId });
-      } catch (error) {
-        if (!isUniqueViolation(error)) {
-          throw error;
-        }
+      // A non-P2002 error still THROWS from the repo and bubbles out immediately;
+      // a P2002 collision is returned as err(ConflictError), so we retry on !r.ok.
+      const r = await this.urls.create({ code: generateShortCode(), originalUrl, ownerId });
+      if (r.ok) {
+        return r.value;
       }
     }
     throw new ConflictError('Could not allocate a unique short code, please retry');
@@ -207,18 +203,4 @@ export class UrlsService {
 function utcMidnight(): Date {
   const now = new Date();
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-}
-
-/**
- * True if the error is a Prisma unique-constraint (P2002) violation — i.e. a
- * short-code collision worth retrying.
- *
- * @param error The caught error.
- * @returns True if it is a P2002 known-request error.
- */
-function isUniqueViolation(error: unknown): boolean {
-  return (
-    error instanceof Prisma.PrismaClientKnownRequestError &&
-    error.code === PRISMA_UNIQUE_VIOLATION
-  );
 }

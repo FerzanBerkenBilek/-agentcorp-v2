@@ -1,5 +1,5 @@
-import { BlockedDomain, FlaggedUrl, FlagState, Prisma } from '@prisma/client';
-import { ConflictError, ValidationError } from '../shared/errors';
+import { BlockedDomain, FlaggedUrl, FlagState } from '@prisma/client';
+import { ValidationError } from '../shared/errors';
 import { canonicalizeRegistrableDomain } from '../shared/domain-canonical';
 import { UrlsService } from '../urls/urls.service';
 import { assertReviewable } from './admin.policy';
@@ -13,9 +13,6 @@ import { AdminRepository } from './admin.repository';
  * canonicalize-on-write, idempotent add (409), state-machine review (404/409),
  * and minting the live ShortUrl on approve via the injected UrlsService.
  */
-
-/** Prisma unique-constraint violation code (UNIQUE(domain) idempotency, R12). */
-const PRISMA_UNIQUE_VIOLATION = 'P2002';
 
 export class AdminService {
   /**
@@ -43,14 +40,11 @@ export class AdminService {
    */
   async addToBlocklist(adminId: string, rawDomain: string, note?: string): Promise<BlockedDomain> {
     const domain = this.canonicalizeOrThrow(rawDomain);
-    try {
-      return await this.repo.addBlockedDomain({ domain, note: note ?? null, addedByUserId: adminId });
-    } catch (error) {
-      if (isUniqueViolation(error)) {
-        throw new ConflictError('Domain is already on the blocklist');
-      }
-      throw error;
+    const r = await this.repo.addBlockedDomain({ domain, note: note ?? null, addedByUserId: adminId });
+    if (!r.ok) {
+      throw r.error;
     }
+    return r.value;
   }
 
   /**
@@ -158,17 +152,4 @@ export class AdminService {
     }
     return canonical;
   }
-}
-
-/**
- * True if the error is a Prisma unique-constraint (P2002) violation.
- *
- * @param error The caught error.
- * @returns Whether it is a P2002 known-request error.
- */
-function isUniqueViolation(error: unknown): boolean {
-  return (
-    error instanceof Prisma.PrismaClientKnownRequestError &&
-    error.code === PRISMA_UNIQUE_VIOLATION
-  );
 }

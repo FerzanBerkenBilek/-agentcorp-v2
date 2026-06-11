@@ -2,6 +2,7 @@ import bcrypt from 'bcrypt';
 import { createHash } from 'crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthError, ConflictError } from '../shared/errors';
+import { ok } from '../shared/result';
 import type { PublicUser, UsersRepository } from '../users/users.repository';
 import { UserRole } from '@prisma/client';
 import type { User } from '@prisma/client';
@@ -114,7 +115,7 @@ describe('AuthService.register', () => {
 
   it('should_register_user_when_valid_input', async () => {
     mocks.usersMock.findByEmail.mockResolvedValue(null);
-    mocks.usersMock.create.mockResolvedValue(makePublicUser());
+    mocks.usersMock.create.mockResolvedValue(ok(makePublicUser()));
 
     const result = await service.register(validRegister);
 
@@ -134,7 +135,7 @@ describe('AuthService.register', () => {
 
   it('should_lowercase_email_before_storing', async () => {
     mocks.usersMock.findByEmail.mockResolvedValue(null);
-    mocks.usersMock.create.mockResolvedValue(makePublicUser());
+    mocks.usersMock.create.mockResolvedValue(ok(makePublicUser()));
 
     await service.register(validRegister);
 
@@ -147,7 +148,7 @@ describe('AuthService.register', () => {
 
   it('should_hash_password_before_storing', async () => {
     mocks.usersMock.findByEmail.mockResolvedValue(null);
-    mocks.usersMock.create.mockResolvedValue(makePublicUser());
+    mocks.usersMock.create.mockResolvedValue(ok(makePublicUser()));
 
     await service.register(validRegister);
 
@@ -354,7 +355,7 @@ describe('AuthService.logout', () => {
   it('should_persist_only_a_sha256_hash_never_plaintext', async () => {
     // Cross-check H2: the stored token key is the SHA-256 of the raw token.
     mocks.usersMock.findByEmail.mockResolvedValue(null);
-    mocks.usersMock.create.mockResolvedValue(makePublicUser());
+    mocks.usersMock.create.mockResolvedValue(ok(makePublicUser()));
 
     const result = await service.register(validRegister);
 
