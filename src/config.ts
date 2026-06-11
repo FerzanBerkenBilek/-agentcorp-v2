@@ -52,6 +52,18 @@ const envSchema = z.object({
         .map((o) => o.trim())
         .filter((o) => o.length > 0),
     ),
+
+  // Google OAuth2 "Sign in with Google" credentials (OA-2026-06-11, ADR-040 §3,
+  // G18). Read ONLY via this config object, never process.env directly. The
+  // client secret is sent only in the server-side token-exchange POST body over
+  // TLS and is NEVER logged, audited, or returned (G19). .env.example carries
+  // placeholders, never real values. Required strings: the process must not boot
+  // a half-configured OAuth surface (fail-fast, like the JWT secrets).
+  GOOGLE_CLIENT_ID: z.string().min(1, 'GOOGLE_CLIENT_ID is required'),
+  GOOGLE_CLIENT_SECRET: z.string().min(1, 'GOOGLE_CLIENT_SECRET is required'),
+  // The fixed, pre-registered redirect URI. Identical on the authorization
+  // request and the token exchange (G21); never sourced from a request param.
+  GOOGLE_REDIRECT_URI: z.string().url('GOOGLE_REDIRECT_URI must be a valid URL'),
 });
 
 type RawEnv = z.infer<typeof envSchema>;

@@ -5,6 +5,62 @@ All notable changes to the Task Management API are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] — 2026-06-11
+
+Adds **"Sign in with Google"** — OAuth2 social login alongside the existing
+email-and-password flow. A successful Google sign-in issues the same session as
+a password login, so nothing else about the API changes for the user.
+
+### Added
+
+- **Sign in with Google (OAuth2 + PKCE).** Two new browser endpoints —
+  `GET /auth/google` (start) and `GET /auth/google/callback` — let users sign in
+  with their Google account. The flow uses the authorization-code grant with PKCE
+  (S256) and ends by issuing the **same** access token and `refresh_token` cookie
+  as `POST /auth/login`. Existing password accounts and downstream endpoints are
+  unaffected. See the
+  [API reference](docs/api.md#oauth2-google-login).
+- **Automatic account linking.** If you already have a password account and sign
+  in with a Google account whose **verified** email matches it, Google is linked
+  to that account (first time only) and you log straight in. A brand-new verified
+  Google user gets a new passwordless account created automatically.
+- **Three new configuration variables.** `GOOGLE_CLIENT_ID`,
+  `GOOGLE_CLIENT_SECRET`, and `GOOGLE_REDIRECT_URI` must be set for the OAuth
+  endpoints to work; the server refuses to start without them. See `.env.example`.
+
+### Security
+
+- **Account-takeover defense (verified-email gating).** Google sign-in only
+  links to — or creates — an account when Google asserts the email is
+  **verified**. An unverified Google email is rejected outright, never linked and
+  never used to create an account. This closes the classic OAuth pre-account-
+  takeover attack where a Google account asserting a victim's email could
+  otherwise be silently logged into the victim's account.
+- **CSRF protection via single-use `state`.** Each sign-in carries a single-use,
+  cryptographically random `state` value, sealed in a signed, HttpOnly,
+  short-lived cookie and checked in constant time on the callback. A replayed,
+  forged, or mismatched `state` is rejected.
+- **PKCE (S256) on every exchange.** The authorization code is bound to a
+  server-held secret with PKCE S256 — there is no `plain` downgrade path — so an
+  intercepted code cannot be redeemed by an attacker.
+- **Identity read only from the back-channel.** The user's profile (including the
+  `email_verified` flag) is read only from Google's server-side token exchange and
+  userinfo endpoint over TLS — never from a value reflected through the browser
+  redirect. The client secret is sent only to Google over TLS and is never logged.
+- **Generic failure responses.** Every sign-in failure — a forged cookie, a stale
+  `state`, a denied consent, an unverified email — returns the same generic `401`;
+  the specific security event is recorded in the audit log only.
+
+### Notes / Known limitations
+
+- **A Google-created account has no password.** An account created through Google
+  sign-in cannot use `POST /auth/login` until the user sets a password (a feature
+  not yet available). Linking the other direction — an existing password account
+  adding Google — leaves the password intact.
+- **Returning Google users are matched by Google id, not email.** Once an account
+  is linked, later sign-ins resolve by the immutable Google subject id, so a
+  changed Google email never re-points or takes over a different account.
+
 ## [1.3.0] — 2026-06-11
 
 Adds abuse prevention to the URL shortener — a per-user daily quota, an

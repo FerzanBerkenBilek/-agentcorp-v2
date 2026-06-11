@@ -6,6 +6,7 @@ import Fastify, { FastifyInstance } from 'fastify';
 import { authRoutes } from './auth/auth.routes';
 import { AuthRepository } from './auth/auth.repository';
 import { AuthService } from './auth/auth.service';
+import { GoogleOAuthClient } from './auth/google-oauth.client';
 import { BODY_LIMIT_BYTES, config } from './config';
 import { errorHandler } from './shared/error-handler';
 import { AppError, ERROR_CODE, HTTP_STATUS } from './shared/errors';
@@ -128,6 +129,13 @@ function registerModules(app: FastifyInstance): void {
   const connectionHub = new ConnectionHub();
 
   const authService = new AuthService(usersRepository, authRepository);
+  // Transport-only Google OAuth2 client (ADR-038/039/040), constructed from the
+  // validated config so the client_secret never leaves the config boundary (G18).
+  const googleOAuthClient = new GoogleOAuthClient({
+    clientId: config.GOOGLE_CLIENT_ID,
+    clientSecret: config.GOOGLE_CLIENT_SECRET,
+    redirectUri: config.GOOGLE_REDIRECT_URI,
+  });
   const tasksService = new TasksService(tasksRepository, usersRepository, connectionHub);
   // The URL service screens every shorten against the blocklist (ADR-034); the
   // equality probe is injected from the admin repo so the screen stays composable
@@ -137,7 +145,7 @@ function registerModules(app: FastifyInstance): void {
   // ShortUrl via urlsService (ADR-032), so it depends on the same url service.
   const adminService = new AdminService(adminRepository, urlsService);
 
-  void app.register(authRoutes, { authService });
+  void app.register(authRoutes, { authService, googleOAuthClient });
   void app.register(tasksRoutes, { tasksService });
   void app.register(usersRoutes, { usersRepository });
   // URL shortener: the anonymous redirect (publicUrlsRoutes, NO authGuard) and

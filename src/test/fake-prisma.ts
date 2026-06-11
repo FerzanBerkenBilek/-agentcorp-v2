@@ -126,20 +126,33 @@ export function createFakePrisma(): { prisma: PrismaClient; store: FakeStore } {
 
   const user = {
     findUnique: async (args: {
-      where: { id?: string; email?: string };
+      where: { id?: string; email?: string; googleId?: string };
       select?: Record<string, boolean>;
     }): Promise<Partial<UserRow> | null> => {
       const found = findUserBy(store, args.where);
       return found ? applySelect(found, args.select) : null;
     },
     create: async (args: {
-      data: { email: string; passwordHash: string; name: string };
+      data: {
+        email: string;
+        passwordHash: string;
+        name: string;
+        googleId?: string | null;
+        googleEmail?: string | null;
+      };
       select?: Record<string, boolean>;
     }): Promise<Partial<UserRow>> => {
       if ([...store.users.values()].some((u) => u.email === args.data.email)) {
-        throw new FakePrismaError('P2002', 'Unique constraint failed', {
-          target: ['email'],
-        });
+        throw prismaKnownError('P2002', 'Unique constraint failed', { target: ['email'] });
+      }
+      // Mirror UNIQUE(google_id): a duplicate non-null googleId is rejected with
+      // a real P2002 (the G6 takeover backstop); multiple NULLs coexist (Postgres
+      // NULL-distinct semantics, data-lead ADR-041).
+      if (
+        args.data.googleId != null &&
+        [...store.users.values()].some((u) => u.googleId === args.data.googleId)
+      ) {
+        throw prismaKnownError('P2002', 'Unique constraint failed', { target: ['google_id'] });
       }
       const now = new Date();
       const row: UserRow = {
@@ -150,11 +163,35 @@ export function createFakePrisma(): { prisma: PrismaClient; store: FakeStore } {
         // Mirror the DB column default (ADR-030): new users are USER. Tests that
         // need an admin set the role explicitly on the seeded row.
         role: UserRole.USER,
+        // Google OAuth identity (ADR-041): NULL for a password-registered user;
+        // set by the create-from-oauth path (OA-4).
+        googleId: args.data.googleId ?? null,
+        googleEmail: args.data.googleEmail ?? null,
         createdAt: now,
         updatedAt: now,
       };
       store.users.set(row.id, row);
       return applySelect(row, args.select);
+    },
+    updateMany: async (args: {
+      where: { id: string; googleId: null };
+      data: { googleId: string; googleEmail: string };
+    }): Promise<{ count: number }> => {
+      // Mirror the first-time-only conditional link write (ADR-036 §5, G5):
+      // UPDATE ... WHERE id=$id AND google_id IS NULL. Binds at most one row;
+      // an already-linked row matches nothing (count 0 → the race-lost signal).
+      const existing = store.users.get(args.where.id);
+      if (!existing || existing.googleId !== null) {
+        return { count: 0 };
+      }
+      // UNIQUE(google_id) backstop on the link path too (G6).
+      if ([...store.users.values()].some((u) => u.googleId === args.data.googleId)) {
+        throw prismaKnownError('P2002', 'Unique constraint failed', { target: ['google_id'] });
+      }
+      existing.googleId = args.data.googleId;
+      existing.googleEmail = args.data.googleEmail;
+      existing.updatedAt = new Date();
+      return { count: 1 };
     },
   };
 
@@ -488,13 +525,16 @@ interface TaskFindManyArgs {
  */
 function findUserBy(
   store: FakeStore,
-  where: { id?: string; email?: string },
+  where: { id?: string; email?: string; googleId?: string },
 ): UserRow | undefined {
   if (where.id !== undefined) {
     return store.users.get(where.id);
   }
   if (where.email !== undefined) {
     return [...store.users.values()].find((u) => u.email === where.email);
+  }
+  if (where.googleId !== undefined) {
+    return [...store.users.values()].find((u) => u.googleId === where.googleId);
   }
   return undefined;
 }

@@ -53,7 +53,7 @@ let baseUrl: string;
 /** Seed a user row directly into the fake store. */
 function seedUser(id: string, email: string): void {
   const now = new Date();
-  const row: User = { id, email, passwordHash: 'x', name: email, role: UserRole.USER, createdAt: now, updatedAt: now };
+  const row: User = { id, email, passwordHash: 'x', name: email, role: UserRole.USER, googleId: null, googleEmail: null, createdAt: now, updatedAt: now };
   store.users.set(id, row);
 }
 

@@ -71,6 +71,21 @@ model User {
   // rewrite) so the existing test suite stays green — no test sees an admin
   // unless it explicitly creates one. Admin bootstrap is an out-of-band UPDATE.
   role         UserRole @default(USER)
+  /// Google OAuth2 subject identifier (the `sub` claim) — the IMMUTABLE, stable
+  /// join key for "Sign in with Google" (ADR-036 §1, ADR-041). NULL for every
+  /// password-only account. UNIQUE: one Google identity maps to exactly one
+  /// account — the takeover backstop (ADR-036 §5). Plain @unique is correct: a
+  /// Postgres UNIQUE treats NULLs as distinct, so the many NULL (password-only)
+  /// rows coexist while every non-null sub is unique — same proven pattern as
+  /// FlaggedUrl.proposedCode. Treated as an OPAQUE string (never parsed numeric);
+  /// VarChar(255) is Google's documented max with headroom.
+  googleId     String?  @unique @map("google_id") @db.VarChar(255)
+  /// The email Google returned at link/create time — stored for AUDIT/DISPLAY
+  /// ONLY (ADR-036 §6, ADR-041). NOT unique (it may legitimately equal another
+  /// account's primary email — the ADR-036 email_verified ladder resolves that)
+  /// and NOT indexed (no query is keyed by it; login joins on googleId, link
+  /// joins on the primary `email`). VarChar(320) mirrors the `email` column.
+  googleEmail  String?  @map("google_email") @db.VarChar(320)
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 

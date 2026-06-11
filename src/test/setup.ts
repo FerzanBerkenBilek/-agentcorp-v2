@@ -26,3 +26,9 @@ process.env.BCRYPT_ROUNDS = '10';
 // Empty by default so the CSRF Origin guard is a no-op except where a test
 // explicitly sets an allowlist by re-importing config (covered in its own test).
 process.env.CORS_ORIGINS = '';
+// Google OAuth2 credentials (OA-2026-06-11). Required by config.ts; throwaway
+// test values. Google's HTTP endpoints are always mocked in tests (no live
+// calls) — these only satisfy the startup Zod validation + URL building.
+process.env.GOOGLE_CLIENT_ID = 'test-google-client-id.apps.googleusercontent.com';
+process.env.GOOGLE_CLIENT_SECRET = 'test-google-client-secret';
+process.env.GOOGLE_REDIRECT_URI = 'http://localhost:3000/auth/google/callback';

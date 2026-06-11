@@ -1,5 +1,6 @@
 import bcrypt from 'bcrypt';
 import { createHash, randomUUID } from 'crypto';
+import { Prisma } from '@prisma/client';
 import jwt, { SignOptions } from 'jsonwebtoken';
 import { config } from '../config';
 import { AuthError, ConflictError } from '../shared/errors';
@@ -8,6 +9,7 @@ import { signAccessToken } from '../shared/jwt';
 import { UsersRepository, PublicUser } from '../users/users.repository';
 import { AuthRepository } from './auth.repository';
 import { LoginInput, RegisterInput } from './auth.schemas';
+import { GoogleIdentity } from './google-oauth.client';
 
 /**
  * A dummy bcrypt hash compared against when no user is found, so that login
@@ -23,6 +25,30 @@ export interface AuthResult {
   refreshToken: string;
   user: PublicUser;
 }
+
+/**
+ * Which branch of the create-or-link ladder (ADR-036, G1–G3) produced the
+ * session, so the route can emit the right audit event (G24):
+ *  - `login`  — returning Google user matched by google_id (G1),
+ *  - `link`   — verified email matched an existing account, now bound (G2),
+ *  - `create` — new passwordless account created (G3).
+ */
+export type GoogleLoginKind = 'login' | 'link' | 'create';
+
+/** A successful Google login plus the branch that produced it (for auditing). */
+export interface GoogleLoginResult extends AuthResult {
+  kind: GoogleLoginKind;
+}
+
+/**
+ * A dummy non-matching bcrypt hash stamped on OAuth-created (passwordless)
+ * accounts (ADR-036 §3, G7). It is a real bcrypt hash of a throwaway value, so
+ * `bcrypt.compare` in the password-login path runs in constant time and ALWAYS
+ * fails — a Google-only account can never password-login. Reuses the same
+ * fail-closed discipline as DUMMY_BCRYPT_HASH on the login path.
+ */
+const OAUTH_PLACEHOLDER_PASSWORD_HASH =
+  '$2b$12$C6UzMDM.H6dfI/f/IKcEeO3Jq3K3qZ3qZ3qZ3qZ3qZ3qZ3qZ3qZ3q';
 
 /**
  * Authentication business logic: registration, login, refresh-token rotation
@@ -75,6 +101,136 @@ export class AuthService {
     }
     const { passwordHash: _omit, ...publicUser } = user;
     return this.issueNewSession(publicUser);
+  }
+
+  /**
+   * Create-or-link a user from a verified Google identity, then issue the SAME
+   * session as /auth/login (ADR-036, G1–G7, G22). The identity MUST already be
+   * the back-channel-verified one from GoogleOAuthClient — this method does NOT
+   * talk to Google; it owns the takeover-defense policy only.
+   *
+   * The ladder (ADR-036):
+   *  1. google_id match → returning OAuth user → issue session (G1).
+   *  2. else if email_verified && primary-email matches an existing account →
+   *     LINK first-time-only (conditional write) → issue session (G2/G5).
+   *  3. else if email_verified && no match → CREATE a passwordless USER → issue
+   *     session (G3).
+   *  4. else (email NOT verified) → REJECT — never link, never create-separate
+   *     (G4, the takeover defense).
+   *
+   * @param identity The Google identity from the server-side exchange.
+   * @returns The session (tokens + user) and the branch taken (for auditing).
+   * @throws AuthError if email_verified is false/absent (G4), or generically on
+   *   any failure (no enumeration).
+   * @throws ConflictError if a concurrent first-login already bound this account
+   *   or a second Google identity claims a linked row (G6).
+   */
+  async loginWithGoogle(identity: GoogleIdentity): Promise<GoogleLoginResult> {
+    // G1: a returning Google user resolves by google_id ONLY, never by email.
+    const linked = await this.users.findByGoogleId(identity.sub);
+    if (linked) {
+      return this.completeGoogleLogin(linked, 'login');
+    }
+    // G4 (takeover defense): an unverified Google email may NOT link or create.
+    // This gate sits AFTER the google_id lookup (an already-linked account is a
+    // trusted prior decision) but BEFORE any email-based branch.
+    if (!identity.emailVerified) {
+      throw new AuthError('Google account email is not verified');
+    }
+    const email = identity.email.toLowerCase();
+    const existing = await this.users.findByEmail(email);
+    if (existing) {
+      return this.linkExistingAccount(existing.id, identity, email);
+    }
+    return this.createOAuthAccount(identity, email);
+  }
+
+  /**
+   * LINK a verified Google identity to an existing account, first-time-only
+   * (ADR-036 §2/§5, G2/G5/G6). A null result from the conditional repo write
+   * means the row was already linked (race lost / re-point attempt) → conflict.
+   *
+   * @param userId The existing account id.
+   * @param identity The verified Google identity.
+   * @param email The lowercased primary email (matched target).
+   * @returns The session + 'link' kind.
+   * @throws ConflictError if the account is already linked (G6).
+   */
+  private async linkExistingAccount(
+    userId: string,
+    identity: GoogleIdentity,
+    email: string,
+  ): Promise<GoogleLoginResult> {
+    const user = await this.guardUniqueGoogleId(() =>
+      this.users.linkGoogleAccount(userId, identity.sub, email),
+    );
+    if (!user) {
+      throw new ConflictError('This account is already linked to a different Google identity');
+    }
+    return this.completeGoogleLogin(user, 'link');
+  }
+
+  /**
+   * CREATE a new passwordless USER from a verified Google identity (ADR-036 §3,
+   * G3/G7). A UNIQUE(google_id) violation (a concurrent create of the same
+   * identity) surfaces as a conflict (G6 backstop).
+   *
+   * @param identity The verified Google identity.
+   * @param email The lowercased email used as both primary email and googleEmail.
+   * @returns The session + 'create' kind.
+   * @throws ConflictError on a unique-constraint race (G6).
+   */
+  private async createOAuthAccount(
+    identity: GoogleIdentity,
+    email: string,
+  ): Promise<GoogleLoginResult> {
+    const user = await this.guardUniqueGoogleId(() =>
+      this.users.createFromOAuth({
+        email,
+        // G7: a non-matching dummy hash → the account can never password-login.
+        passwordHash: OAUTH_PLACEHOLDER_PASSWORD_HASH,
+        name: identity.name ?? email,
+        googleId: identity.sub,
+        googleEmail: email,
+      }),
+    );
+    return this.completeGoogleLogin(user, 'create');
+  }
+
+  /**
+   * Run a repo write that may hit UNIQUE(google_id) (or UNIQUE(email)) and
+   * translate a Prisma P2002 into a generic ConflictError (G6) — the takeover
+   * backstop. Any other Prisma/unexpected error propagates unchanged.
+   *
+   * @param write The repo operation to guard.
+   * @returns The operation's result.
+   * @throws ConflictError on a P2002 unique-constraint violation.
+   */
+  private async guardUniqueGoogleId<T>(write: () => Promise<T>): Promise<T> {
+    try {
+      return await write();
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        throw new ConflictError('This Google account cannot be linked');
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * Issue the standard session for a Google login and tag the branch (G22).
+   * Delegates to the SAME issueNewSession token path as password login — no fork.
+   *
+   * @param user The resolved/linked/created public user.
+   * @param kind The ladder branch (for the route's audit event).
+   * @returns The session result plus the kind.
+   */
+  private async completeGoogleLogin(
+    user: PublicUser,
+    kind: GoogleLoginKind,
+  ): Promise<GoogleLoginResult> {
+    const session = await this.issueNewSession(user);
+    return { ...session, kind };
   }
 
   /**

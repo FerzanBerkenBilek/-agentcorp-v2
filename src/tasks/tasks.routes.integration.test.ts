@@ -37,6 +37,9 @@ function seedUser(id: string, email: string): void {
     passwordHash: 'x',
     name: email,
     role: UserRole.USER,
+    // ADR-041: password-seeded fixture user has no Google identity.
+    googleId: null,
+    googleEmail: null,
     createdAt: now,
     updatedAt: now,
   };

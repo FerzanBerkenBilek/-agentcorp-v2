@@ -41,6 +41,10 @@ function makeUser(overrides: Partial<User> = {}): User {
     passwordHash: 'placeholder',
     name: 'Alice',
     role: UserRole.USER,
+    // ADR-041: password-auth fixture user has no Google identity unless an
+    // override sets it (a future "Sign in with Google" test can pass googleId).
+    googleId: null,
+    googleEmail: null,
     createdAt: now,
     updatedAt: now,
     ...overrides,

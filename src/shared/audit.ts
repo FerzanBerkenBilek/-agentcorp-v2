@@ -35,6 +35,15 @@ export const AUDIT_ACTION = {
   WS_CAP_EXCEEDED: 'ws.cap_exceeded',
   WS_FRAME_ABUSE: 'ws.frame_abuse',
   WS_TOKEN_EXPIRED: 'ws.token_expired',
+  // OAuth2 Google login (OA-2026-06-11, ADR-036/037/040, G24). These carry NO
+  // secret/PII beyond actorId (the client_secret, tokens, code_verifier, and
+  // Google sub are NEVER recorded; google email is not an audit field either).
+  OAUTH_START: 'auth.oauth_start',
+  OAUTH_CALLBACK: 'auth.oauth_callback',
+  OAUTH_LINK: 'auth.oauth_link',
+  OAUTH_CREATE: 'auth.oauth_create',
+  OAUTH_LINK_DENIED: 'auth.oauth_link_denied',
+  OAUTH_STATE_REJECTED: 'auth.oauth_state_rejected',
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTION)[keyof typeof AUDIT_ACTION];

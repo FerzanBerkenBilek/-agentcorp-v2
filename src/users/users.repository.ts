@@ -15,6 +15,13 @@ const PUBLIC_USER_SELECT = {
   // claim is derived from this column at token issue, so callers that build the
   // session/principal read it here. Never a secret (unlike passwordHash).
   role: true,
+  // Google OAuth identity (ADR-041). Both are part of the public profile and
+  // NOT secret (unlike passwordHash): PublicUser = Omit<User,'passwordHash'>
+  // includes them in the TYPE, so the runtime select must include them too or
+  // PublicUser drifts. googleId is the public identity join key; googleEmail is
+  // audit/display. NULL for every password-only account.
+  googleId: true,
+  googleEmail: true,
   createdAt: true,
   updatedAt: true,
 } as const;
@@ -24,6 +31,20 @@ export interface CreateUserData {
   email: string;
   passwordHash: string;
   name: string;
+}
+
+/**
+ * Data required to create a user from a Google OAuth identity (ADR-036 §3, G3).
+ * `passwordHash` is a non-matching dummy supplied by auth.service so the new
+ * passwordless account fails closed on any password login (G7); `googleId` is
+ * the immutable Google `sub`, `googleEmail` the verified email Google returned.
+ */
+export interface CreateOAuthUserData {
+  email: string;
+  passwordHash: string;
+  name: string;
+  googleId: string;
+  googleEmail: string;
 }
 
 /**
@@ -78,5 +99,63 @@ export class UsersRepository {
    */
   async create(data: CreateUserData): Promise<PublicUser> {
     return this.db.user.create({ data, select: PUBLIC_USER_SELECT });
+  }
+
+  /**
+   * Find a user by their Google `sub` (the immutable OAuth join key, ADR-036 §1).
+   * This is the hot path on every OAuth callback for a returning Google user;
+   * it probes the `users_google_id_key` UNIQUE index (data-lead ADR-041).
+   *
+   * @param googleId The Google `sub` claim (opaque string).
+   * @returns The public user linked to that Google identity, or null.
+   */
+  async findByGoogleId(googleId: string): Promise<PublicUser | null> {
+    return this.db.user.findUnique({ where: { googleId }, select: PUBLIC_USER_SELECT });
+  }
+
+  /**
+   * Create a new account from a verified Google identity (ADR-036 §3, G3).
+   * Email must already be lowercased by the caller. The DB UNIQUE(email) and
+   * UNIQUE(google_id) constraints are the final guards (the latter is the G6
+   * takeover backstop). The supplied `passwordHash` is a non-matching dummy so
+   * the account cannot password-login (G7).
+   *
+   * @param data Email, dummy passwordHash, name, googleId, googleEmail.
+   * @returns The created public user (no passwordHash).
+   */
+  async createFromOAuth(data: CreateOAuthUserData): Promise<PublicUser> {
+    return this.db.user.create({ data, select: PUBLIC_USER_SELECT });
+  }
+
+  /**
+   * Link a Google identity to an EXISTING account, first-time-only (ADR-036 §5,
+   * G5). The write is conditional — `WHERE id = $id AND google_id IS NULL` — so
+   * two concurrent first-logins cannot both bind, and an already-linked row is
+   * never overwritten. Returns the linked public user, or null if the guard
+   * matched no row (already linked / lost the race), which the service maps to a
+   * conflict (G6).
+   *
+   * @param userId The id of the existing account to link.
+   * @param googleId The Google `sub` to bind (immutable join key).
+   * @param googleEmail The verified Google email, stored for audit/display.
+   * @returns The linked public user, or null if the conditional guard did not match.
+   */
+  async linkGoogleAccount(
+    userId: string,
+    googleId: string,
+    googleEmail: string,
+  ): Promise<PublicUser | null> {
+    // updateMany lets the WHERE include the `google_id IS NULL` guard (a plain
+    // `update` requires a unique-only where and cannot express the guard). The
+    // returned count is the optimistic-concurrency signal: 1 = we bound it,
+    // 0 = a concurrent first-login already bound it (G5/G6 race backstop).
+    const { count } = await this.db.user.updateMany({
+      where: { id: userId, googleId: null },
+      data: { googleId, googleEmail },
+    });
+    if (count === 0) {
+      return null;
+    }
+    return this.findPublicById(userId);
   }
 }

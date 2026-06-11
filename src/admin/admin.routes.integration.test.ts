@@ -46,7 +46,7 @@ const USER_ID = '22222222-2222-2222-2222-222222222222';
 /** Seed a user with an explicit role. */
 function seedUser(id: string, role: UserRole): void {
   const now = new Date();
-  const row: User = { id, email: `${id}@example.com`, passwordHash: 'x', name: id, role, createdAt: now, updatedAt: now };
+  const row: User = { id, email: `${id}@example.com`, passwordHash: 'x', name: id, role, googleId: null, googleEmail: null, createdAt: now, updatedAt: now };
   store.users.set(id, row);
 }
 

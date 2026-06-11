@@ -1,5 +1,6 @@
 import { FastifyInstance, FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
-import { audit, AUDIT_ACTION } from '../shared/audit';
+import { z } from 'zod';
+import { audit, AUDIT_ACTION, AuditAction } from '../shared/audit';
 import {
   csrfOriginGuard,
   REFRESH_COOKIE_NAME,
@@ -10,14 +11,49 @@ import { AuthError } from '../shared/errors';
 import { HTTP_STATUS } from '../shared/errors';
 import { ok } from '../shared/http';
 import { parseOrThrow } from '../shared/validate';
-import { AuthService, AuthResult } from './auth.service';
+import { AuthService, AuthResult, GoogleLoginKind, GoogleLoginResult } from './auth.service';
 import { AuthResponse, loginSchema, registerSchema } from './auth.schemas';
 import { TokenReuseError } from './token-reuse.error';
+import { GoogleOAuthClient } from './google-oauth.client';
+import {
+  newOAuthTx,
+  oauthTxCookieOptions,
+  openOAuthTx,
+  OAUTH_TX_COOKIE_NAME,
+  OAUTH_TX_COOKIE_PATH,
+  sealOAuthTx,
+  statesMatch,
+} from './oauth-tx';
 
 /** Dependencies injected into the auth routes plugin. */
 export interface AuthRoutesDeps {
   authService: AuthService;
+  /** Transport-only Google OAuth2 client (ADR-038). */
+  googleOAuthClient: GoogleOAuthClient;
 }
+
+/** Per-IP rate limit for the OAuth start/callback endpoints (reuse ADR-014 shape). */
+const OAUTH_RATE_LIMIT = { max: 20, timeWindow: '15 minutes' } as const;
+
+/**
+ * Google's callback query (G11/G12: identity is NEVER read from these params —
+ * only `code` + `state` are used; everything else is ignored). `error` is set
+ * when the user denies consent or Google rejects the request.
+ */
+const googleCallbackQuerySchema = z
+  .object({
+    code: z.string().min(1).optional(),
+    state: z.string().min(1).optional(),
+    error: z.string().min(1).optional(),
+  })
+  .passthrough();
+
+/** Audit action per create-or-link branch (G24). */
+const OAUTH_KIND_AUDIT: Record<GoogleLoginKind, AuditAction> = {
+  login: AUDIT_ACTION.OAUTH_CALLBACK,
+  link: AUDIT_ACTION.OAUTH_LINK,
+  create: AUDIT_ACTION.OAUTH_CREATE,
+};
 
 /** Refresh cookie lifetime in seconds (7 days; matches REFRESH_TOKEN_TTL). */
 const REFRESH_COOKIE_MAX_AGE = 7 * 24 * 60 * 60;
@@ -38,7 +74,7 @@ export const authRoutes: FastifyPluginAsync<AuthRoutesDeps> = async (
   app: FastifyInstance,
   deps: AuthRoutesDeps,
 ): Promise<void> => {
-  const { authService } = deps;
+  const { authService, googleOAuthClient } = deps;
 
   app.post(
     '/auth/register',
@@ -102,6 +138,80 @@ export const authRoutes: FastifyPluginAsync<AuthRoutesDeps> = async (
     reply.clearCookie(REFRESH_COOKIE_NAME, { path: REFRESH_COOKIE_PATH });
     return reply.send(ok({ loggedOut: true }));
   });
+
+  // GET /auth/google — begin "Sign in with Google" (ADR-037, G3/G8–G11).
+  // Generate a fresh single-use state + PKCE verifier, seal them in the signed
+  // HttpOnly SameSite=Lax oauth_tx cookie, and 302-redirect to Google's
+  // authorization URL (PKCE S256). No identity is asserted yet (G12).
+  // INTENTIONALLY PUBLIC: this is an unauthenticated login entry point, like
+  // /auth/login. No CSRF Origin guard: it is a top-level GET that mutates no
+  // server state (the cookie is the only effect and is itself the CSRF token).
+  app.get('/auth/google', { config: { rateLimit: OAUTH_RATE_LIMIT } }, async (request, reply) => {
+    const tx = newOAuthTx();
+    reply.setCookie(OAUTH_TX_COOKIE_NAME, sealOAuthTx(tx), oauthTxCookieOptions());
+    const url = googleOAuthClient.buildAuthorizationUrl({
+      codeVerifier: tx.verifier,
+      state: tx.state,
+    });
+    audit(request.log, AUDIT_ACTION.OAUTH_START, { actorId: null, outcome: 'success' });
+    return reply.redirect(url, HTTP_STATUS.FOUND);
+  });
+
+  // GET /auth/google/callback — handle Google's redirect (ADR-036/037/039/040).
+  // Validate state from the signed cookie (single-use, constant-time), exchange
+  // the code (PKCE) for the back-channel-verified identity, run the create-or-
+  // link ladder, and issue the SAME session as /auth/login (G22). The oauth_tx
+  // cookie is ALWAYS cleared (success and failure) → single-use (G10). No
+  // attacker-controlled redirect is honored (G20): the session is issued in
+  // place (refresh cookie + access token in the JSON body), like /auth/login.
+  app.get(
+    '/auth/google/callback',
+    { config: { rateLimit: OAUTH_RATE_LIMIT } },
+    async (request, reply) => {
+      // Single-use: clear the transient cookie up front, before anything can
+      // throw, so a replay after this request finds no cookie (G10).
+      const txCookie = request.cookies[OAUTH_TX_COOKIE_NAME];
+      reply.clearCookie(OAUTH_TX_COOKIE_NAME, { path: OAUTH_TX_COOKIE_PATH });
+
+      const query = parseOrThrow(googleCallbackQuerySchema, request.query);
+      const tx = openOAuthTx(txCookie);
+
+      // G11: reject on absent/forged cookie, missing/mismatched state, or a
+      // Google-reported error — all map to the same generic rejection (no
+      // enumeration), audited as OAUTH_STATE_REJECTED.
+      if (!tx || query.error || !query.state || !query.code || !statesMatch(tx.state, query.state)) {
+        audit(request.log, AUDIT_ACTION.OAUTH_STATE_REJECTED, {
+          actorId: null,
+          outcome: 'failure',
+        });
+        throw new AuthError('OAuth login failed');
+      }
+
+      // Back-channel exchange (G12–G15) — identity ONLY from this server-side call.
+      const identity = await googleOAuthClient.exchangeCodeForIdentity(query.code, tx.verifier);
+
+      let result: GoogleLoginResult;
+      try {
+        result = await authService.loginWithGoogle(identity);
+      } catch (err) {
+        // G4: an unverified-email rejection is the takeover-defense event —
+        // audit it distinctly before the generic error reaches the client.
+        if (err instanceof AuthError) {
+          audit(request.log, AUDIT_ACTION.OAUTH_LINK_DENIED, {
+            actorId: null,
+            outcome: 'failure',
+          });
+        }
+        throw err;
+      }
+
+      audit(request.log, OAUTH_KIND_AUDIT[result.kind], {
+        actorId: result.user.id,
+        outcome: 'success',
+      });
+      return sendSession(reply, result, HTTP_STATUS.OK);
+    },
+  );
 };
 
 /**

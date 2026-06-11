@@ -17,6 +17,8 @@ REST API for the Task Management service.
   - [POST /auth/login](#post-authlogin)
   - [POST /auth/refresh](#post-authrefresh)
   - [POST /auth/logout](#post-authlogout)
+  - [GET /auth/google](#get-authgoogle)
+  - [GET /auth/google/callback](#get-authgooglecallback)
   - [GET /tasks](#get-tasks)
   - [POST /tasks](#post-tasks)
   - [GET /tasks/:id](#get-tasksid)
@@ -108,6 +110,12 @@ Because the refresh and logout endpoints rely on a cookie, they are CSRF-protect
 
 Call [`POST /auth/logout`](#post-authlogout). It revokes the refresh-token family and clears the cookie. It is idempotent — a missing or unknown token still returns success.
 
+### Signing in with Google
+
+The API also supports **"Sign in with Google"** (OAuth2 authorization-code flow with PKCE). It is a second way to *obtain the same session* — there is no separate Google token type. The flow ends by issuing the **exact same** `accessToken` (HS256, 15 min) + `refresh_token` HttpOnly cookie that [`POST /auth/login`](#post-authlogin) issues, so every downstream endpoint behaves identically afterwards. See [`GET /auth/google`](#get-authgoogle) and [`GET /auth/google/callback`](#get-authgooglecallback), and ADR-036/037/038/039/040.
+
+Three environment variables must be configured (the process refuses to start without them): `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `GOOGLE_REDIRECT_URI`. The redirect URI must exactly match a URI registered on the Google OAuth client **and** the deployed `GET /auth/google/callback` URL. See [`.env.example`](../.env.example).
+
 ---
 
 ## Error Codes
@@ -129,6 +137,8 @@ Call [`POST /auth/logout`](#post-authlogout). It revokes the refresh-token famil
 | `POST /auth/register` | 5 requests / 15 min per IP |
 | `POST /auth/login` | 5 requests / 15 min per IP |
 | `POST /auth/refresh` | 30 requests / 15 min per IP |
+| `GET /auth/google` | 20 requests / 15 min per IP |
+| `GET /auth/google/callback` | 20 requests / 15 min per IP |
 | `POST /shorten` | 10 requests / min per IP |
 | `/admin/*` (each admin endpoint) | 60 requests / min per IP |
 | All authenticated endpoints (global default) | 100 requests / min per IP |
@@ -350,6 +360,154 @@ The `refresh_token` cookie is cleared. Returns `200` (with this body) whether or
 ```bash
 curl -i -X POST http://localhost:3000/auth/logout \
   -b cookies.txt -c cookies.txt
+```
+
+---
+
+## OAuth2 Google Login
+
+"Sign in with Google" is the OAuth2 **authorization-code flow with PKCE**. It spans two `GET` endpoints — a start (`/auth/google`) and a callback (`/auth/google/callback`) — that the **browser** navigates to; they are not called with `fetch`/XHR. A successful flow issues the **same session as `POST /auth/login`** (an access token in the JSON body plus the `refresh_token` HttpOnly cookie), so nothing downstream needs to know whether the user signed in with a password or with Google.
+
+### The flow
+
+```
+ 1. Browser  ──navigate──▶  GET /auth/google
+                            └─ server mints a single-use `state` + PKCE `code_verifier`,
+                               seals both in the signed HttpOnly `oauth_tx` cookie,
+                               and 302-redirects to Google with code_challenge (S256) + state
+ 2. Browser  ──redirect──▶  accounts.google.com   (user consents)
+ 3. Google   ──redirect──▶  GET /auth/google/callback?code=…&state=…
+                            └─ server validates state (constant-time, single-use),
+                               exchanges the code server-side (PKCE) for the verified identity,
+                               runs the create-or-link ladder, and issues the session
+ 4. Server   ───────────▶  200 OK { accessToken, user } + Set-Cookie: refresh_token=…
+```
+
+**Why two endpoints and a cookie?** The `state` (CSRF defense) and the PKCE `code_verifier` (code-injection defense) must survive the redirect round-trip to Google and back. They are carried as **one signed, HttpOnly, short-lived `oauth_tx` cookie** rather than server state — no new datastore, no new dependency (ADR-037/038).
+
+### Identity comes only from the back-channel
+
+The callback never trusts identity reflected through the browser redirect — the redirect carries only the opaque `code` + `state`. The server exchanges the `code` at Google's token endpoint over server-to-server TLS, then reads the profile (`sub`, `email`, `email_verified`, `name`) from Google's `userinfo` endpoint using the freshly-exchanged access token. This is the only channel an attacker cannot tamper with (ADR-039). **Scopes requested are read-only:** `openid email profile` — no write/offline access is requested (`access_type=online`).
+
+### Create-or-link semantics
+
+On each successful callback the server runs this ladder **in exact order** (ADR-036). The branch chosen decides whether you log into an existing account, link Google to one, create a new one, or are rejected:
+
+| Situation | `email_verified` | Outcome | What happens |
+|---|---|---|---|
+| Google `sub` already bound to an account | (not checked) | **Login** | Resolve by `google_id` and issue a session. A returning Google user is matched by the immutable Google subject id, never by email. |
+| New `sub`, verified email matches an existing account | `true` | **Link** | Bind `google_id` onto that account (first-time-only, conditional write) and issue a session. |
+| New `sub`, email matches no account | `true` | **Create** | Create a new passwordless `USER` account and issue a session. |
+| New `sub`, email **not** verified | `false` / absent | **Rejected** | `401 AUTH_ERROR` (generic). Never links, never creates. |
+
+> **Why the `email_verified` gate (ADR-036 — account-takeover defense).** An OAuth provider can return an email address the user does **not** control (Workspace admins can set arbitrary unverified emails). Auto-linking on a bare email match is the canonical OAuth pre-account-takeover bug (CWE-287/CWE-290): an attacker with a Google account asserting a victim's email would be silently logged into the victim's password account. Gating the link/create branches hard on `email_verified === true` closes that class. The gate sits **after** the `google_id` lookup (an already-linked account is a trusted prior decision — branch 1 logs in even if Google later reports the email unverified) but **before** any email-based branch.
+
+> **Note — a Google-created account is passwordless.** An account created via branch 3 has no usable password, so `POST /auth/login` can never succeed for it until the user sets one (a deferred feature). The reverse direction — an existing password account linking Google (branch 2) — keeps its password.
+
+### Cookies: `oauth_tx` is deliberately `SameSite=Lax`
+
+Two distinct cookies are in play, and they intentionally differ:
+
+| Cookie | Set by | Purpose | `SameSite` | `Path` | Lifetime |
+|---|---|---|---|---|---|
+| `oauth_tx` | `GET /auth/google` | Transient signed carrier for `state` + PKCE `code_verifier` | **`Lax`** | `/auth/google` | ≤ 600 s, cleared on callback |
+| `refresh_token` | the issued session | Long-lived session continuity | **`Strict`** | `/auth` | 7 days |
+
+> **Why `oauth_tx` is `Lax`, not `Strict` (ADR-037/038 — do not "fix" this to Strict).** The callback (step 3) is a **top-level GET navigation initiated cross-site from `accounts.google.com`**. A `SameSite=Strict` cookie would **not** be sent on that navigation and the flow would silently break. `Lax` sends the cookie on exactly this top-level GET. CSRF is still defended — by the **signed, single-use `state` inside the cookie**, not by `SameSite`. The cookie is also `HttpOnly` and (in production) `Secure`, scoped to `Path=/auth/google` so it never rides on `/auth/refresh` or `/auth/logout`, and is **cleared on every callback** (success and failure) so it is single-use.
+
+---
+
+### GET /auth/google
+
+Begin "Sign in with Google". The browser navigates here (e.g. a link/button `href`); the server responds with a `302` redirect to Google's consent screen.
+
+- **Auth:** none (this is an unauthenticated login entry point, like `POST /auth/login`).
+- **Rate limit:** 20 / 15 min per IP.
+
+No request body, headers, or query parameters.
+
+**Success — `302 Found`**
+
+```
+HTTP/1.1 302 Found
+Location: https://accounts.google.com/o/oauth2/v2/auth?client_id=…&redirect_uri=…&response_type=code&scope=openid%20email%20profile&state=…&code_challenge=…&code_challenge_method=S256&access_type=online
+Set-Cookie: oauth_tx=<signed>; Path=/auth/google; HttpOnly; SameSite=Lax; Max-Age=600
+```
+
+The browser follows the `Location` to Google. No JSON body is returned.
+
+**curl**
+
+```bash
+# -i shows the 302 + Set-Cookie; do NOT use -L (do not auto-follow to Google).
+curl -i http://localhost:3000/auth/google
+```
+
+> This endpoint is meant to be opened in a browser, not scripted — the round-trip requires a real Google consent screen.
+
+---
+
+### GET /auth/google/callback
+
+Google redirects the browser here after consent. The server validates the `oauth_tx` cookie against the returned `state`, exchanges the `code` for the verified identity, runs the [create-or-link ladder](#create-or-link-semantics), and issues the session.
+
+- **Auth:** none (the `oauth_tx` cookie is the only credential, and it is the CSRF token).
+- **Rate limit:** 20 / 15 min per IP.
+
+**Query parameters** (set by Google, not by you)
+
+| Param | Type | When present |
+|---|---|---|
+| `code` | string | On consent — the authorization code to exchange. |
+| `state` | string | On consent — must match the value sealed in `oauth_tx`. |
+| `error` | string | When the user denies consent or Google rejects the request. |
+
+Any other query params are ignored — identity is never read from them.
+
+**Request headers**
+
+| Header | Value | Required |
+|---|---|---|
+| `Cookie` | `oauth_tx=<signed>` | Yes (set by `GET /auth/google`; sent automatically by the browser) |
+
+**Success — `200 OK`**
+
+Identical shape to `POST /auth/login`:
+
+```json
+{
+  "success": true,
+  "data": {
+    "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "user": {
+      "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+      "email": "alice@example.com",
+      "name": "Alice"
+    }
+  }
+}
+```
+
+Also sets the `refresh_token` HttpOnly cookie and clears the `oauth_tx` cookie. The response is the same whether the branch taken was **login**, **link**, or **create** — the branch is recorded only in the audit log (`OAUTH_CALLBACK` / `OAUTH_LINK` / `OAUTH_CREATE`).
+
+**Errors**
+
+| Status | `code` | Cause |
+|---|---|---|
+| `401` | `AUTH_ERROR` | Missing/forged/expired `oauth_tx` cookie; missing or mismatched `state`; missing `code`; a Google-reported `error`; an unverified-email rejection (the takeover gate); or any token-exchange/identity failure. All collapse to one generic message (no enumeration). |
+| `409` | `CONFLICT` | A concurrent first-login already bound this account, or a second Google identity claims an already-linked account. |
+| `429` | `RATE_LIMIT_EXCEEDED` | More than 20 callbacks / 15 min from this IP. |
+
+> All failure modes — a forged cookie, a stale `state`, a denied consent, an unverified email — return the **same** generic `401`. This is deliberate: the endpoint reveals nothing about *why* it failed (no account enumeration). The distinct security events are written to the audit log only (`OAUTH_STATE_REJECTED`, `OAUTH_LINK_DENIED`).
+
+**curl**
+
+```bash
+# Real callbacks are issued by Google to a registered redirect URI; this endpoint
+# cannot be exercised by hand without a live `code` + the matching `oauth_tx` cookie.
+# A direct call with no valid cookie/state demonstrates the generic rejection:
+curl -i "http://localhost:3000/auth/google/callback?code=x&state=y"
+# → 401 { "success": false, "error": { "code": "AUTH_ERROR", ... } }
 ```
 
 ---
