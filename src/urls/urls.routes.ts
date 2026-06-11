@@ -1,16 +1,23 @@
 import { ShortUrl } from '@prisma/client';
-import { FastifyInstance, FastifyPluginAsync } from 'fastify';
+import { FastifyInstance, FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
+import { AdminService } from '../admin/admin.service';
 import { audit, AUDIT_ACTION } from '../shared/audit';
 import { authGuard, requireAuth } from '../shared/auth-context';
-import { HTTP_STATUS } from '../shared/errors';
+import { HTTP_STATUS, ValidationError } from '../shared/errors';
 import { ok } from '../shared/http';
 import { parseOrThrow } from '../shared/validate';
 import { codeParamSchema, shortenSchema } from './urls.schemas';
-import { UrlsService } from './urls.service';
+import { QuotaExceededError, ShortenOutcome, UrlsService } from './urls.service';
 
-/** Dependencies injected into the urls route plugins. */
-export interface UrlsRoutesDeps {
+/** Dependencies injected into the PUBLIC redirect plugin (no admin surface). */
+export interface PublicUrlsRoutesDeps {
   urlsService: UrlsService;
+}
+
+/** Dependencies injected into the authenticated urls route plugin. */
+export interface UrlsRoutesDeps extends PublicUrlsRoutesDeps {
+  /** Admin service — used to persist a screening FLAG as a PENDING row (R25). */
+  adminService: AdminService;
 }
 
 /** Per-route rate limit on POST /shorten: 10 requests/minute/IP (M1 / ADR-014). */
@@ -42,6 +49,63 @@ function toShortenResponse(url: ShortUrl): ShortenResponse {
   };
 }
 
+/** Generic client message for a screened-out URL (R18/R23 — no rule leakage). */
+const BLOCKED_MESSAGE = 'This URL is not allowed.';
+
+/**
+ * Resolve a screened shorten outcome into the HTTP response (R18/R23/R25):
+ *  - ALLOW: 201 with the created short URL; audit URL_SHORTEN.
+ *  - FLAG:  persist a PENDING flagged row (no live link), audit URL_FLAGGED, and
+ *           return a generic 202-style "accepted for review" envelope.
+ *  - BLOCK: persist nothing, audit URL_BLOCKED, and reject with a generic 422.
+ * The specific matched rule + score live in the AUDIT log only, never the client.
+ *
+ * @param request The Fastify request (for the request-scoped audit logger).
+ * @param reply The Fastify reply.
+ * @param adminService Used to persist a FLAG as a PENDING row.
+ * @param userId The authenticated submitter.
+ * @param outcome The discriminated screening outcome from the service.
+ * @returns The Fastify reply.
+ * @throws ValidationError (422) for a BLOCK verdict.
+ */
+async function handleShortenOutcome(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  adminService: AdminService,
+  userId: string,
+  outcome: ShortenOutcome,
+): Promise<FastifyReply> {
+  if (outcome.decision === 'ALLOW') {
+    audit(request.log, AUDIT_ACTION.URL_SHORTEN, {
+      actorId: userId,
+      resourceId: outcome.url.code,
+      outcome: 'success',
+    });
+    return reply.status(HTTP_STATUS.CREATED).send(ok(toShortenResponse(outcome.url)));
+  }
+
+  if (outcome.decision === 'FLAG') {
+    const flagged = await adminService.recordFlag(
+      userId,
+      outcome.safeUrl,
+      outcome.screen.score,
+      outcome.screen.reason,
+    );
+    audit(request.log, AUDIT_ACTION.URL_FLAGGED, {
+      actorId: userId,
+      resourceId: flagged.id,
+      outcome: 'success',
+    });
+    return reply.status(HTTP_STATUS.ACCEPTED).send(
+      ok({ status: 'pending_review', message: 'This URL has been submitted for review.' }),
+    );
+  }
+
+  // BLOCK: nothing persisted; audit the rejection with the server-only reason.
+  audit(request.log, AUDIT_ACTION.URL_BLOCKED, { actorId: userId, outcome: 'failure' });
+  throw new ValidationError(BLOCKED_MESSAGE, [{ path: 'url', message: 'blocked' }]);
+}
+
 /**
  * PUBLIC urls route plugin — the anonymous redirect. Registered with NO
  * authGuard (mirrors the public /health pattern). This is the ONLY shortener
@@ -51,9 +115,9 @@ function toShortenResponse(url: ShortUrl): ShortenResponse {
  * @param deps Injected dependencies (urls service).
  * @returns A promise that resolves once the route is registered.
  */
-export const publicUrlsRoutes: FastifyPluginAsync<UrlsRoutesDeps> = async (
+export const publicUrlsRoutes: FastifyPluginAsync<PublicUrlsRoutesDeps> = async (
   app: FastifyInstance,
-  deps: UrlsRoutesDeps,
+  deps: PublicUrlsRoutesDeps,
 ): Promise<void> => {
   const { urlsService } = deps;
 
@@ -84,7 +148,7 @@ export const urlsRoutes: FastifyPluginAsync<UrlsRoutesDeps> = async (
   app: FastifyInstance,
   deps: UrlsRoutesDeps,
 ): Promise<void> => {
-  const { urlsService } = deps;
+  const { urlsService, adminService } = deps;
   app.addHook('preHandler', authGuard);
 
   app.post(
@@ -93,9 +157,16 @@ export const urlsRoutes: FastifyPluginAsync<UrlsRoutesDeps> = async (
     async (request, reply) => {
       const { userId } = requireAuth(request);
       const input = parseOrThrow(shortenSchema, request.body);
-      const url = await urlsService.shorten(userId, input.url);
-      audit(request.log, AUDIT_ACTION.URL_SHORTEN, { actorId: userId, resourceId: url.code, outcome: 'success' });
-      return reply.status(HTTP_STATUS.CREATED).send(ok(toShortenResponse(url)));
+      let outcome: ShortenOutcome;
+      try {
+        outcome = await urlsService.shorten(userId, input.url);
+      } catch (error) {
+        if (error instanceof QuotaExceededError) {
+          audit(request.log, AUDIT_ACTION.QUOTA_EXCEEDED, { actorId: userId, outcome: 'failure' });
+        }
+        throw error;
+      }
+      return handleShortenOutcome(request, reply, adminService, userId, outcome);
     },
   );
 

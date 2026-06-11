@@ -11,6 +11,10 @@ const PUBLIC_USER_SELECT = {
   id: true,
   email: true,
   name: true,
+  // Authorization role (ADR-030). Part of the public profile: the JWT `role`
+  // claim is derived from this column at token issue, so callers that build the
+  // session/principal read it here. Never a secret (unlike passwordHash).
+  role: true,
   createdAt: true,
   updatedAt: true,
 } as const;

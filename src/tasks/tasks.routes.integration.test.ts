@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto';
 import jwt from 'jsonwebtoken';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FastifyInstance } from 'fastify';
+import { UserRole } from '@prisma/client';
 import type { User } from '@prisma/client';
 import { createFakePrisma, type FakeStore } from '../test/fake-prisma';
 
@@ -35,6 +36,7 @@ function seedUser(id: string, email: string): void {
     email,
     passwordHash: 'x',
     name: email,
+    role: UserRole.USER,
     createdAt: now,
     updatedAt: now,
   };

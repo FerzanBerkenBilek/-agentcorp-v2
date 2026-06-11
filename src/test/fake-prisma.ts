@@ -1,6 +1,9 @@
 import { randomUUID } from 'crypto';
 import { Prisma } from '@prisma/client';
+import { FlagState, UserRole } from '@prisma/client';
 import type {
+  BlockedDomain,
+  FlaggedUrl,
   PrismaClient,
   RefreshToken,
   ShortUrl,
@@ -31,6 +34,8 @@ interface UserRow extends User {}
 interface TaskRow extends Task {}
 interface RefreshTokenRow extends RefreshToken {}
 interface ShortUrlRow extends ShortUrl {}
+interface BlockedDomainRow extends BlockedDomain {}
+interface FlaggedUrlRow extends FlaggedUrl {}
 
 /** Thrown to mimic Prisma's known-request-error envelope (code + meta). */
 class FakePrismaError extends Error {
@@ -51,6 +56,10 @@ export interface FakeStore {
   refreshTokens: Map<string, RefreshTokenRow>;
   /** Keyed by short code (the unique business key), mirroring UNIQUE(code). */
   shortUrls: Map<string, ShortUrlRow>;
+  /** Keyed by canonical domain (UNIQUE(domain)), mirroring the blocklist. */
+  blockedDomains: Map<string, BlockedDomainRow>;
+  /** Keyed by UUID id, mirroring flagged_urls. */
+  flaggedUrls: Map<string, FlaggedUrlRow>;
 }
 
 /**
@@ -111,6 +120,8 @@ export function createFakePrisma(): { prisma: PrismaClient; store: FakeStore } {
     tasks: new Map(),
     refreshTokens: new Map(),
     shortUrls: new Map(),
+    blockedDomains: new Map(),
+    flaggedUrls: new Map(),
   };
 
   const user = {
@@ -136,6 +147,9 @@ export function createFakePrisma(): { prisma: PrismaClient; store: FakeStore } {
         email: args.data.email,
         passwordHash: args.data.passwordHash,
         name: args.data.name,
+        // Mirror the DB column default (ADR-030): new users are USER. Tests that
+        // need an admin set the role explicitly on the seeded row.
+        role: UserRole.USER,
         createdAt: now,
         updatedAt: now,
       };
@@ -271,6 +285,16 @@ export function createFakePrisma(): { prisma: PrismaClient; store: FakeStore } {
     findUnique: async (args: { where: { code: string } }): Promise<ShortUrlRow | null> => {
       return store.shortUrls.get(args.where.code) ?? null;
     },
+    count: async (args: {
+      where: { ownerId: string; createdAt?: { gte: Date } };
+    }): Promise<number> => {
+      const since = args.where.createdAt?.gte;
+      return [...store.shortUrls.values()].filter(
+        (u) =>
+          u.ownerId === args.where.ownerId &&
+          (since === undefined || u.createdAt.getTime() >= since.getTime()),
+      ).length;
+    },
     update: async (args: {
       where: { code: string };
       data: ShortUrlUpdateData;
@@ -300,11 +324,99 @@ export function createFakePrisma(): { prisma: PrismaClient; store: FakeStore } {
     },
   };
 
+  const blockedDomain = {
+    findUnique: async (args: {
+      where: { domain: string };
+      select?: Record<string, boolean>;
+    }): Promise<Partial<BlockedDomainRow> | null> => {
+      const found = store.blockedDomains.get(args.where.domain);
+      return found ? applySelect(found, args.select) : null;
+    },
+    create: async (args: { data: BlockedDomainCreateData }): Promise<BlockedDomainRow> => {
+      // Mirror UNIQUE(domain): a duplicate surfaces as a real Prisma P2002.
+      if (store.blockedDomains.has(args.data.domain)) {
+        throw prismaKnownError('P2002', 'Unique constraint failed', { target: ['domain'] });
+      }
+      const row: BlockedDomainRow = {
+        id: randomUUID(),
+        domain: args.data.domain,
+        note: args.data.note ?? null,
+        addedByUserId: args.data.addedByUserId ?? null,
+        createdAt: new Date(),
+      };
+      store.blockedDomains.set(row.domain, row);
+      return row;
+    },
+    findMany: async (_args: { orderBy?: unknown }): Promise<BlockedDomainRow[]> => {
+      const rows = [...store.blockedDomains.values()];
+      rows.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+      return rows;
+    },
+    deleteMany: async (args: { where: { domain: string } }): Promise<{ count: number }> => {
+      return store.blockedDomains.delete(args.where.domain) ? { count: 1 } : { count: 0 };
+    },
+  };
+
+  const flaggedUrl = {
+    create: async (args: { data: FlaggedUrlCreateData }): Promise<FlaggedUrlRow> => {
+      const row: FlaggedUrlRow = {
+        id: randomUUID(),
+        candidateUrl: args.data.candidateUrl,
+        proposedCode: null,
+        ownerId: args.data.ownerId,
+        confidenceScore: args.data.confidenceScore,
+        state: FlagState.PENDING,
+        flaggedReason: args.data.flaggedReason,
+        createdAt: new Date(),
+        reviewedAt: null,
+        reviewedByUserId: null,
+      };
+      store.flaggedUrls.set(row.id, row);
+      return row;
+    },
+    findUnique: async (args: { where: { id: string } }): Promise<FlaggedUrlRow | null> => {
+      return store.flaggedUrls.get(args.where.id) ?? null;
+    },
+    findMany: async (args: {
+      where?: { state?: FlagState };
+      orderBy?: unknown;
+    }): Promise<FlaggedUrlRow[]> => {
+      let rows = [...store.flaggedUrls.values()];
+      if (args.where?.state !== undefined) {
+        rows = rows.filter((f) => f.state === args.where!.state);
+      }
+      rows.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+      return rows;
+    },
+    update: async (args: {
+      where: { id: string };
+      data: Partial<FlaggedUrlRow>;
+    }): Promise<FlaggedUrlRow> => {
+      const existing = store.flaggedUrls.get(args.where.id);
+      if (!existing) {
+        throw prismaKnownError('P2025', 'Record to update not found');
+      }
+      const updated: FlaggedUrlRow = { ...existing, ...args.data };
+      store.flaggedUrls.set(updated.id, updated);
+      return updated;
+    },
+    delete: async (args: { where: { id: string } }): Promise<FlaggedUrlRow> => {
+      const existing = store.flaggedUrls.get(args.where.id);
+      if (!existing) {
+        throw prismaKnownError('P2025', 'Record to delete not found');
+      }
+      store.flaggedUrls.delete(args.where.id);
+      return existing;
+    },
+  };
+
   const client = {
     user,
     task,
     refreshToken,
     shortUrl,
+    blockedDomain,
+    flaggedUrl,
     // The tasks repository runs [findMany, count] inside a transaction.
     $transaction: async <T>(ops: Promise<T>[]): Promise<T[]> => Promise.all(ops),
     $disconnect: async (): Promise<void> => undefined,
@@ -334,6 +446,19 @@ interface ShortUrlCreateData {
   code: string;
   originalUrl: string;
   ownerId: string;
+}
+
+interface BlockedDomainCreateData {
+  domain: string;
+  note?: string | null;
+  addedByUserId?: string | null;
+}
+
+interface FlaggedUrlCreateData {
+  candidateUrl: string;
+  ownerId: string;
+  confidenceScore: number;
+  flaggedReason: string;
 }
 
 interface ShortUrlUpdateData {

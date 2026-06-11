@@ -32,6 +32,27 @@ enum TaskPriority {
   URGENT
 }
 
+/// Application authorization role (abuse-prevention, ADR-030). The UNFORGEABLE
+/// source of truth for whether a user is an admin. The JWT `role` claim is
+/// derived from THIS column at token issue, never from a request body — no API
+/// route writes `role`, so there is no self-promotion path. Enum (not boolean)
+/// for future extensibility (e.g. MODERATOR). Intentionally NOT indexed: a
+/// 2-value column has near-zero selectivity (the planner would seq-scan anyway).
+enum UserRole {
+  USER
+  ADMIN
+}
+
+/// Lifecycle of a flagged (suspected-abusive) URL submission (ADR-032).
+/// State machine: screening flags a candidate → PENDING; an admin review moves
+/// it to APPROVED (terminal; a real ShortUrl is minted) or REJECTED (terminal;
+/// nothing minted). approve/reject are only valid from PENDING (else 409).
+enum FlagState {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 // ─── Models ───────────────────────────────────────────────────────────────────
 
 /// A registered application user. Owns tasks and can be assigned tasks.
@@ -45,6 +66,11 @@ model User {
   // bcrypt hash is fixed-length 60 chars; 72 leaves headroom (ADR-008).
   passwordHash String   @map("password_hash") @db.VarChar(72)
   name         String   @db.VarChar(100)
+  // Authorization role (ADR-030). NOT NULL DEFAULT USER backfills every existing
+  // row to USER at migration time (metadata-only ALTER, Postgres 11+, no table
+  // rewrite) so the existing test suite stays green — no test sees an admin
+  // unless it explicitly creates one. Admin bootstrap is an out-of-band UPDATE.
+  role         UserRole @default(USER)
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
@@ -55,6 +81,15 @@ model User {
   refreshTokens RefreshToken[]
   /// Short URLs created by this user (FK ShortUrl.ownerId, NOT NULL, CASCADE delete).
   shortUrls     ShortUrl[]
+  /// Blocklist entries this (admin) user added (FK BlockedDomain.addedByUserId,
+  /// NULLABLE, SET NULL — the block outlives the curator who added it).
+  blockedDomainsAdded BlockedDomain[] @relation("BlockedDomainAddedBy")
+  /// URLs this user submitted that got flagged (FK FlaggedUrl.ownerId, NOT NULL,
+  /// CASCADE — deleting the submitter removes their pending submissions).
+  flaggedUrls         FlaggedUrl[]    @relation("FlaggedUrlOwner")
+  /// Flag reviews this (admin) user performed (FK FlaggedUrl.reviewedByUserId,
+  /// NULLABLE, SET NULL — preserve the review record if the reviewer is deleted).
+  reviewedFlaggedUrls FlaggedUrl[]    @relation("FlaggedUrlReviewedBy")
 
   @@map("users")
 }
@@ -151,11 +186,80 @@ model ShortUrl {
   // Deleting a user removes all their short URLs (no orphaned links).
   owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
 
-  // ── Indexes (data-lead index strategy, ADR-024) ───────────────────────────
+  // ── Indexes (data-lead index strategy, ADR-024 + ADR-032) ─────────────────
   // UNIQUE(code) is created by @unique above: the HOT path — WHERE code = ? on
   // every GET /:code redirect and GET /:code/stats. EXPLAIN must show Index Scan.
-  // Owner-scoped: owner-only authz on stats/delete + any "list my URLs" read.
-  @@index([ownerId])
+  // Composite (owner_id, created_at): serves BOTH the daily-quota range COUNT
+  // (ADR-032: WHERE owner_id = ? AND created_at >= date_trunc('day', now() …))
+  // AND, via its leftmost prefix (owner_id), the owner-only authz on stats/delete
+  // and "list my URLs". This REPLACES the standalone (owner_id) index from
+  // migration 003 — the prefix subsumes it, so net index count stays flat.
+  @@index([ownerId, createdAt])
 
   @@map("short_urls")
+}
+
+/// A domain on the abuse blocklist (ADR-031). `domain` stores the CANONICAL
+/// REGISTRABLE form (lowercase + IDN→punycode + trailing-dot stripped + reduced
+/// to the registrable eTLD+1). Subdomain coverage is achieved by canonicalizing
+/// BOTH sides and matching by EQUALITY (WHERE domain = $canonical), never by a
+/// suffix LIKE — equality is index-backed and bypass-proof (a.b.evil.com → its
+/// registrable form evil.com → hits the single stored row). The hot path is one
+/// UNIQUE-index equality probe on every POST /shorten. The block is immutable
+/// (add/remove only) — hence no `updated_at`.
+model BlockedDomain {
+  id        String   @id @default(uuid()) @db.Uuid
+  // Canonical registrable domain. RFC 1035 caps a full domain name at 253 chars.
+  // UNIQUE backs the hot equality probe AND enforces "one row per domain".
+  domain    String   @unique @db.VarChar(253)
+  // Free-text curator note (why it was blocked). Optional.
+  note      String?  @db.Text
+  // The admin who added the entry. NULLABLE + SET NULL: the block must outlive
+  // the curator (deleting the admin must NOT delete the blocklist entry).
+  addedByUserId String? @map("added_by_user_id") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  addedBy User? @relation("BlockedDomainAddedBy", fields: [addedByUserId], references: [id], onDelete: SetNull)
+
+  @@map("blocked_domains")
+}
+
+/// A URL submission that automated screening flagged as suspected-abusive
+/// (ADR-032). It is held here (NOT minted as a live ShortUrl) until an admin
+/// approves it. `short_urls` therefore stays "live-only" — the redirect path
+/// needs no state filter. State machine + persistence rules: see FlagState.
+model FlaggedUrl {
+  id              String    @id @default(uuid()) @db.Uuid
+  candidateUrl    String    @map("candidate_url") @db.Text
+  // Optional reserved short code (UNIQUE-when-present; multiple NULLs allowed by
+  // Postgres). Supports both "reserve at flag" and "assign at approval" — the
+  // exact timing is a backend AP-3 decision and does not change this shape.
+  proposedCode    String?   @unique @map("proposed_code") @db.VarChar(6)
+  ownerId         String    @map("owner_id") @db.Uuid
+  // Screening confidence 0–100. SMALLINT (not Decimal/float): an exact integer
+  // band for deterministic threshold comparisons. CHECK(0..100) in migration 004.
+  confidenceScore Int       @map("confidence_score") @db.SmallInt
+  state           FlagState @default(PENDING)
+  flaggedReason   String    @map("flagged_reason") @db.Text
+  createdAt       DateTime  @default(now()) @map("created_at")
+  // null until reviewed; set together with the terminal state transition.
+  reviewedAt      DateTime? @map("reviewed_at")
+  reviewedByUserId String?  @map("reviewed_by_user_id") @db.Uuid
+
+  // Submitter. CASCADE: deleting the user removes their pending submissions.
+  owner      User  @relation("FlaggedUrlOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  // Reviewing admin. NULLABLE + SET NULL: preserve the review decision even if
+  // the reviewer's account is later deleted.
+  reviewedBy User? @relation("FlaggedUrlReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+
+  // ── Indexes (data-lead index strategy, ADR-032) ───────────────────────────
+  // Admin review queue: PARTIAL on PENDING only, ordered by created_at. The
+  // partial predicate keeps the index tiny (terminal rows are excluded) and the
+  // (state, created_at) order lets "PENDING oldest-first" read straight off the
+  // index with NO Sort node. Mirrors the tasks(assignee_id) partial pattern.
+  @@index([state, createdAt])
+  // "my flagged submissions" + supports the owner CASCADE FK.
+  @@index([ownerId])
+
+  @@map("flagged_urls")
 }

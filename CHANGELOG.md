@@ -5,6 +5,70 @@ All notable changes to the Task Management API are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] — 2026-06-11
+
+Adds abuse prevention to the URL shortener — a per-user daily quota, an
+admin-curated blocklist, and phishing-heuristic flagging — plus six admin
+endpoints for moderation.
+
+### Added
+
+- **Admin moderation endpoints.** Six new admin-only endpoints curate the
+  blocklist and work the flagged-URL review queue: list / add / remove blocklist
+  domains (`GET`, `POST`, `DELETE /admin/blocklist`), and list / approve / reject
+  flagged URLs (`GET /admin/flagged`, `POST /admin/flagged/:id/approve`,
+  `POST /admin/flagged/:id/reject`). See the
+  [API reference](docs/api.md#abuse-prevention--admin).
+- **Screening on `POST /shorten`.** Every shorten request is now screened after
+  the SSRF safety check and resolves to one of three outcomes: a normal link
+  (`201`), **queued for review** when a URL looks like a phishing attempt
+  (`202 Accepted`, no link created until an admin approves it), or **rejected**
+  when the domain is blocklisted (`422`).
+- **Admin-curated blocklist.** Admins can block a registrable domain; blocking
+  `evil.com` automatically covers `a.b.evil.com` and every other subdomain, plus
+  case and IDN/punycode variants, via a single canonical-domain match.
+- **Phishing-heuristic flagging.** URLs that are homograph look-alikes or
+  Levenshtein distance 1–2 typosquats of a known brand are flagged for manual
+  admin review rather than blocked, so a false positive costs a review, not a
+  denied user.
+- **Per-user daily quota.** Each user can create at most **100 short links per
+  UTC calendar day**; the 101st returns `429`.
+
+### Security
+
+- **Unforgeable admin role.** The `admin` role lives in a database column that
+  only operator SQL can set — there is no self-service promotion endpoint and no
+  request body can set it. The role is signed into the access token (HS256), so
+  it cannot be injected or tampered with. Demotion takes effect within one
+  access-token lifetime (default 15 minutes). A role-check failure returns an
+  honest `403` (the admin capability is not an enumerable secret), while missing
+  individual objects (a flagged id, a blocklist domain) still return `404`.
+- **Bypass-resistant blocklist.** The blocklist stores and matches the canonical
+  registrable domain, comparing both the stored entry and each candidate after
+  the same lowercase → punycode → trailing-dot → eTLD+1 reduction. This closes
+  the classic case / IDN-homograph / trailing-dot / subdomain bypasses with a
+  single indexed equality check, with no leading-wildcard scan on the hot path.
+- **Generic screening responses.** A blocked or flagged URL never tells the
+  client *why* — the matched rule and confidence score are written to the audit
+  log only — so the screening logic cannot be probed.
+- **Per-user abuse quota.** The daily quota bounds bulk-link abuse per account
+  independently of the existing per-IP rate limit.
+
+### Notes / Known limitations
+
+- **A FLAG creates no live link until approved.** A flagged URL is stored as a
+  `PENDING` review row with no short code; `GET /:code` cannot resolve it until
+  an admin approves, at which point a live link is minted for the original
+  submitter. A rejected URL is discarded and never minted.
+- **Heuristic lists are static and in-repo.** The brand list, confusable map, and
+  public-suffix subset are small in-repo tables (no new dependency). A stale list
+  only *misses* a new typosquat — and a miss is low blast radius because the
+  heuristic flags rather than blocks. See ADR-034 / ADR-035.
+- **Demotion is not instant.** A demoted admin keeps admin power until their
+  current access token expires. See ADR-033.
+
+---
+
 ## [1.2.0] — 2026-06-10
 
 Adds a real-time WebSocket channel that pushes task changes to connected clients
@@ -165,6 +229,7 @@ organizing, assigning, and tracking tasks, with secure JWT-based authentication.
   for PostgreSQL (see the [README](README.md)). Containerization and CI are
   planned for a future operations sprint.
 
+[1.3.0]: https://keepachangelog.com/en/1.1.0/
 [1.2.0]: https://keepachangelog.com/en/1.1.0/
 [1.1.0]: https://keepachangelog.com/en/1.1.0/
 [1.0.0]: https://keepachangelog.com/en/1.1.0/

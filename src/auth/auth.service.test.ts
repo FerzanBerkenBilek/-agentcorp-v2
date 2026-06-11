@@ -3,6 +3,7 @@ import { createHash } from 'crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthError, ConflictError } from '../shared/errors';
 import type { PublicUser, UsersRepository } from '../users/users.repository';
+import { UserRole } from '@prisma/client';
 import type { User } from '@prisma/client';
 import type { AuthRepository } from './auth.repository';
 import { AuthService } from './auth.service';
@@ -39,6 +40,7 @@ function makeUser(overrides: Partial<User> = {}): User {
     email: 'alice@example.com',
     passwordHash: 'placeholder',
     name: 'Alice',
+    role: UserRole.USER,
     createdAt: now,
     updatedAt: now,
     ...overrides,

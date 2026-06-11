@@ -43,6 +43,21 @@ export class UrlsRepository {
   }
 
   /**
+   * Count the live short URLs a user has created since `since` — the per-user
+   * daily-quota probe (ADR-032/R24). The WHERE shape (`owner_id = ? AND
+   * created_at >= ?`) is served index-only by the composite
+   * `short_urls(owner_id, created_at)` (db-engineer EXPLAIN-verified); `since`
+   * MUST be UTC midnight so the count is a calendar-day-UTC window.
+   *
+   * @param ownerId The owner whose links are counted.
+   * @param since Inclusive lower bound on createdAt (UTC midnight for the day).
+   * @returns The number of live short URLs created by the owner since `since`.
+   */
+  async countCreatedSince(ownerId: string, since: Date): Promise<number> {
+    return this.db.shortUrl.count({ where: { ownerId, createdAt: { gte: since } } });
+  }
+
+  /**
    * Atomically record a click: increment clickCount and set lastAccessedAt in a
    * single UPDATE (ADR-023). Serialized by the row lock, so concurrent redirects
    * cannot lose an increment.

@@ -1,4 +1,5 @@
 import jwt, { SignOptions } from 'jsonwebtoken';
+import { UserRole } from '@prisma/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 /**
@@ -233,7 +234,7 @@ describe('authenticateHandshake (R1/R2/R3)', () => {
 describe('msUntilExpiry (R18)', () => {
   it('should_return_positive_ms_for_a_future_expiry', async () => {
     const { msUntilExpiry } = await loadHandshake('', 'test');
-    const payload = { sub: 'u', iat: 1000, exp: 2000 };
+    const payload = { sub: 'u', role: UserRole.USER, iat: 1000, exp: 2000 };
 
     // exp 2000s, now 1500s -> 500_000 ms.
     expect(msUntilExpiry(payload, 1_500_000)).toBe(500_000);
@@ -241,7 +242,7 @@ describe('msUntilExpiry (R18)', () => {
 
   it('should_floor_at_zero_for_an_already_expired_token', async () => {
     const { msUntilExpiry } = await loadHandshake('', 'test');
-    const payload = { sub: 'u', iat: 1000, exp: 1500 };
+    const payload = { sub: 'u', role: UserRole.USER, iat: 1000, exp: 1500 };
 
     expect(msUntilExpiry(payload, 2_000_000)).toBe(0);
   });

@@ -4,6 +4,7 @@ import WebSocket from 'ws';
 import type { RawData } from 'ws';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FastifyInstance } from 'fastify';
+import { UserRole } from '@prisma/client';
 import type { Task, User } from '@prisma/client';
 import { createFakePrisma, type FakeStore } from '../test/fake-prisma';
 import { audit } from '../shared/audit';
@@ -52,7 +53,7 @@ let baseUrl: string;
 /** Seed a user row directly into the fake store. */
 function seedUser(id: string, email: string): void {
   const now = new Date();
-  const row: User = { id, email, passwordHash: 'x', name: email, createdAt: now, updatedAt: now };
+  const row: User = { id, email, passwordHash: 'x', name: email, role: UserRole.USER, createdAt: now, updatedAt: now };
   store.users.set(id, row);
 }
 

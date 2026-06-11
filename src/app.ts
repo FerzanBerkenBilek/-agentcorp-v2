@@ -21,6 +21,9 @@ import { UsersRepository } from './users/users.repository';
 import { publicUrlsRoutes, urlsRoutes } from './urls/urls.routes';
 import { UrlsRepository } from './urls/urls.repository';
 import { UrlsService } from './urls/urls.service';
+import { adminRoutes } from './admin/admin.routes';
+import { AdminRepository } from './admin/admin.repository';
+import { AdminService } from './admin/admin.service';
 import { ConnectionHub } from './ws/connection-hub';
 import { wsRoutes } from './ws/ws.routes';
 
@@ -118,6 +121,7 @@ function registerModules(app: FastifyInstance): void {
   const authRepository = new AuthRepository(prisma);
   const tasksRepository = new TasksRepository(prisma);
   const urlsRepository = new UrlsRepository(prisma);
+  const adminRepository = new AdminRepository(prisma);
 
   // ADR-025: one plain-singleton hub, injected as the task event publisher AND
   // registered as the WS plugin's connection registry (the same instance).
@@ -125,7 +129,13 @@ function registerModules(app: FastifyInstance): void {
 
   const authService = new AuthService(usersRepository, authRepository);
   const tasksService = new TasksService(tasksRepository, usersRepository, connectionHub);
-  const urlsService = new UrlsService(urlsRepository);
+  // The URL service screens every shorten against the blocklist (ADR-034); the
+  // equality probe is injected from the admin repo so the screen stays composable
+  // and the urls module does not depend on the admin module.
+  const urlsService = new UrlsService(urlsRepository, (domain) => adminRepository.isBlocked(domain));
+  // Admin moderation (blocklist + flagged review). approveFlagged mints a live
+  // ShortUrl via urlsService (ADR-032), so it depends on the same url service.
+  const adminService = new AdminService(adminRepository, urlsService);
 
   void app.register(authRoutes, { authService });
   void app.register(tasksRoutes, { tasksService });
@@ -133,7 +143,10 @@ function registerModules(app: FastifyInstance): void {
   // URL shortener: the anonymous redirect (publicUrlsRoutes, NO authGuard) and
   // the authenticated shorten/stats/delete routes (urlsRoutes, behind authGuard).
   void app.register(publicUrlsRoutes, { urlsService });
-  void app.register(urlsRoutes, { urlsService });
+  void app.register(urlsRoutes, { urlsService, adminService });
+  // Abuse-prevention admin endpoints (ADR-031/032), all behind authGuard +
+  // requireRole('admin') inside the plugin (R7/R8 — default deny).
+  void app.register(adminRoutes, { adminService });
   // Real-time task updates: the WS upgrade endpoint (its own handshake auth via
   // verifyAccessToken, NOT authGuard) wired to the shared hub (ADR-025).
   void app.register(wsRoutes, { hub: connectionHub });

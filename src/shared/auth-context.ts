@@ -1,5 +1,6 @@
 import { FastifyReply, FastifyRequest } from 'fastify';
-import { AuthError } from './errors';
+import { UserRole } from '@prisma/client';
+import { AuthError, ForbiddenError } from './errors';
 import { verifyAccessToken } from './jwt';
 
 /**
@@ -8,6 +9,8 @@ import { verifyAccessToken } from './jwt';
 export interface AuthContext {
   /** Authenticated user's id (JWT `sub`). */
   userId: string;
+  /** Authorization role (ADR-030/033), derived from the signed `role` claim. */
+  role: UserRole;
 }
 
 declare module 'fastify' {
@@ -38,7 +41,7 @@ export async function authGuard(request: FastifyRequest, _reply: FastifyReply): 
   }
   const token = header.slice(BEARER_PREFIX.length).trim();
   const payload = verifyAccessToken(token);
-  request.authContext = { userId: payload.sub };
+  request.authContext = { userId: payload.sub, role: payload.role };
 }
 
 /**
@@ -54,4 +57,28 @@ export function requireAuth(request: FastifyRequest): AuthContext {
     throw new AuthError('Authentication required');
   }
   return request.authContext;
+}
+
+/**
+ * Fastify preHandler factory that authorizes a request by role (ADR-033, R7/R8).
+ *
+ * Returns a preHandler that runs AFTER `authGuard` (which sets `authContext`)
+ * and asserts the authenticated principal holds `required`. Default-deny: a
+ * missing context (guard not run) or a non-matching role both fail. Unlike the
+ * object-level 404-not-403 posture (ADR-013/021), a role failure throws
+ * `ForbiddenError` (403): the admin *capability* is not an enumerable object
+ * secret, so an honest 403 leaks nothing and is the correct, debuggable signal
+ * for an authenticated non-admin (ADR-033 ruling). Object-level checks (e.g. a
+ * missing flagged `:id`) stay 404 in their own service/policy layer.
+ *
+ * @param required The role the caller must hold (e.g. `UserRole.ADMIN`).
+ * @returns A Fastify preHandler enforcing the role.
+ */
+export function requireRole(required: UserRole) {
+  return async function roleGuard(request: FastifyRequest, _reply: FastifyReply): Promise<void> {
+    const context = requireAuth(request);
+    if (context.role !== required) {
+      throw new ForbiddenError('Admin role required');
+    }
+  };
 }

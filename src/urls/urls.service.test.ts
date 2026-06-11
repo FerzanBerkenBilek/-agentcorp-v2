@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConflictError, NotFoundError, ValidationError } from '../shared/errors';
 import { assertSafeUrl } from '../shared/url-safety';
 import { generateShortCode } from '../shared/short-code';
-import { UrlsService, MAX_INSERT_RETRIES } from './urls.service';
+import { UrlsService, MAX_INSERT_RETRIES, DAILY_QUOTA, QuotaExceededError } from './urls.service';
 import type { UrlsRepository } from './urls.repository';
 
 /**
@@ -61,16 +61,22 @@ function makeMocks(): {
     findByCode: ReturnType<typeof vi.fn>;
     recordClick: ReturnType<typeof vi.fn>;
     delete: ReturnType<typeof vi.fn>;
+    countCreatedSince: ReturnType<typeof vi.fn>;
   };
+  isBlocked: ReturnType<typeof vi.fn>;
 } {
   const repo = {
     create: vi.fn(),
     findByCode: vi.fn(),
     recordClick: vi.fn().mockResolvedValue(undefined),
     delete: vi.fn().mockResolvedValue(undefined),
+    // Default: under quota (0 links today) so the gate passes.
+    countCreatedSince: vi.fn().mockResolvedValue(0),
   };
-  const service = new UrlsService(repo as unknown as UrlsRepository);
-  return { service, repo };
+  // Default: nothing is on the blocklist, so the screen ALLOWs a public URL.
+  const isBlocked = vi.fn().mockResolvedValue(false);
+  const service = new UrlsService(repo as unknown as UrlsRepository, isBlocked);
+  return { service, repo, isBlocked };
 }
 
 beforeEach(() => {
@@ -119,9 +125,10 @@ describe('UrlsService.shorten', () => {
       .mockRejectedValueOnce(uniqueViolation())
       .mockResolvedValueOnce(makeShortUrl({ code: 'Uniq02' }));
 
-    const result = await m.service.shorten(CALLER, RAW_URL);
+    const outcome = await m.service.shorten(CALLER, RAW_URL);
 
-    expect(result.code).toBe('Uniq02');
+    expect(outcome.decision).toBe('ALLOW');
+    expect(outcome.decision === 'ALLOW' && outcome.url.code).toBe('Uniq02');
     expect(m.repo.create).toHaveBeenCalledTimes(2);
   });
 
@@ -139,6 +146,91 @@ describe('UrlsService.shorten', () => {
 
     await expect(m.service.shorten(CALLER, RAW_URL)).rejects.toThrow('connection lost');
     expect(m.repo.create).toHaveBeenCalledOnce();
+  });
+});
+
+describe('UrlsService.shorten — daily quota (R24)', () => {
+  it('should_reject_with_ConflictError_when_the_quota_is_reached', async () => {
+    const m = makeMocks();
+    m.repo.countCreatedSince.mockResolvedValue(DAILY_QUOTA);
+
+    await expect(m.service.shorten(CALLER, RAW_URL)).rejects.toBeInstanceOf(QuotaExceededError);
+    // Quota is checked PRE-validate/PRE-persist: nothing is created, no SSRF call.
+    expect(m.repo.create).not.toHaveBeenCalled();
+    expect(assertSafeUrlMock).not.toHaveBeenCalled();
+  });
+
+  it('should_allow_the_request_when_just_under_the_quota', async () => {
+    const m = makeMocks();
+    m.repo.countCreatedSince.mockResolvedValue(DAILY_QUOTA - 1);
+    m.repo.create.mockResolvedValue(makeShortUrl());
+
+    const outcome = await m.service.shorten(CALLER, RAW_URL);
+
+    expect(outcome.decision).toBe('ALLOW');
+  });
+
+  it('should_count_only_the_caller_links_since_utc_midnight', async () => {
+    const m = makeMocks();
+    m.repo.create.mockResolvedValue(makeShortUrl());
+
+    await m.service.shorten(CALLER, RAW_URL);
+
+    const [ownerId, since] = m.repo.countCreatedSince.mock.calls[0];
+    expect(ownerId).toBe(CALLER);
+    // The window lower bound is UTC midnight (time-of-day all zero).
+    expect(since.getUTCHours()).toBe(0);
+    expect(since.getUTCMinutes()).toBe(0);
+    expect(since.getUTCSeconds()).toBe(0);
+  });
+});
+
+describe('UrlsService.shorten — screen verdicts (ADR-034/035)', () => {
+  it('should_BLOCK_and_persist_nothing_when_the_domain_is_blocklisted', async () => {
+    const m = makeMocks();
+    m.isBlocked.mockResolvedValue(true);
+
+    const outcome = await m.service.shorten(CALLER, RAW_URL);
+
+    expect(outcome.decision).toBe('BLOCK');
+    expect(m.repo.create).not.toHaveBeenCalled();
+  });
+
+  it('should_FLAG_and_persist_nothing_for_a_typosquat', async () => {
+    const m = makeMocks();
+    assertSafeUrlMock.mockResolvedValue('https://gooogle.com/');
+
+    const outcome = await m.service.shorten(CALLER, 'https://gooogle.com');
+
+    expect(outcome.decision).toBe('FLAG');
+    expect(outcome.decision === 'FLAG' && outcome.safeUrl).toBe('https://gooogle.com/');
+    expect(m.repo.create).not.toHaveBeenCalled();
+  });
+
+  it('should_run_the_screen_strictly_after_assertSafeUrl', async () => {
+    const m = makeMocks();
+    m.repo.create.mockResolvedValue(makeShortUrl());
+
+    await m.service.shorten(CALLER, RAW_URL);
+
+    // The blocklist probe receives the canonical host of assertSafeUrl's href.
+    expect(assertSafeUrlMock).toHaveBeenCalled();
+    expect(m.isBlocked).toHaveBeenCalledWith('example.com');
+  });
+});
+
+describe('UrlsService.createApproved', () => {
+  it('should_mint_a_short_url_without_screening_or_quota_check', async () => {
+    const m = makeMocks();
+    m.repo.create.mockResolvedValue(makeShortUrl());
+
+    const url = await m.service.createApproved(CALLER, SAFE_URL);
+
+    expect(url.code).toBe(CODE);
+    expect(m.repo.create.mock.calls[0][0].ownerId).toBe(CALLER);
+    // The approval path does NOT re-screen or re-check quota.
+    expect(m.isBlocked).not.toHaveBeenCalled();
+    expect(m.repo.countCreatedSince).not.toHaveBeenCalled();
   });
 });
 

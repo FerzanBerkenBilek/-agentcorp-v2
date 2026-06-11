@@ -98,7 +98,10 @@ export class AuthService {
       throw new AuthError('Invalid refresh token');
     }
     const refreshToken = await this.persistRefreshToken(user.id, record.family);
-    return { accessToken: signAccessToken(user.id), refreshToken, user };
+    // ADR-030/033: derive the `role` claim from the freshly re-read persisted
+    // user, never from any request input. Re-reading here means a demotion takes
+    // effect on the next refresh (R5).
+    return { accessToken: signAccessToken(user.id, user.role), refreshToken, user };
   }
 
   /**
@@ -159,7 +162,9 @@ export class AuthService {
    */
   private async issueNewSession(user: PublicUser): Promise<AuthResult> {
     const refreshToken = await this.persistRefreshToken(user.id, randomUUID());
-    return { accessToken: signAccessToken(user.id), refreshToken, user };
+    // ADR-030/033: `role` is signed from the persisted column on the public user,
+    // never client-supplied — closes the self-promotion / role-in-body path (R1).
+    return { accessToken: signAccessToken(user.id, user.role), refreshToken, user };
   }
 
   /**
