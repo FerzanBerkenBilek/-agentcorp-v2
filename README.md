@@ -2,13 +2,13 @@
 
 > Production-ready task management and URL shortening API
 
-![Tests](https://img.shields.io/badge/tests-197%20passing-brightgreen)
-![Coverage](https://img.shields.io/badge/lines-98.74%25-brightgreen)
-![Branch](https://img.shields.io/badge/branch-95%25-brightgreen)
+![Tests](https://img.shields.io/badge/tests-616%20passing-brightgreen)
+![Coverage](https://img.shields.io/badge/lines-99.38%25-brightgreen)
+![Branch](https://img.shields.io/badge/branch-97.5%25-brightgreen)
 ![Build](https://img.shields.io/badge/tsc-0%20errors-brightgreen)
 ![Node](https://img.shields.io/badge/Node.js-22%20LTS-339933)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178c6)
-![License](https://img.shields.io/badge/version-1.1.0-blue)
+![License](https://img.shields.io/badge/version-1.6.0-blue)
 
 ## 🤖 Built with Claude Code Agents
 
@@ -16,7 +16,7 @@ This project was designed and implemented using AgentCorp v2 — an orchestrated
 
 The agent system is included in this repo (.agents/) and can be installed to replicate the same development workflow on any machine.
 
-A REST API combining a JWT-secured **task manager** and an SSRF-hardened **URL shortener**, built on Node.js 22, TypeScript (strict), Fastify, Prisma, and PostgreSQL. It is production-ready by construction: a strict layered architecture (route → service → repository), object-level authorization on every resource, threat-modeled security on every feature, **197 tests at 98.74% line coverage**, and **24 Architecture Decision Records** documenting every non-obvious choice.
+A REST API combining a JWT-secured **task manager** and an SSRF-hardened **URL shortener**, built on Node.js 22, TypeScript (strict), Fastify, Prisma, and PostgreSQL. It is production-ready by construction: a strict layered architecture (route → service → repository), object-level authorization on every resource, threat-modeled security on every feature, **616 tests at 99.38% line coverage**, and **49 Architecture Decision Records** documenting every non-obvious choice.
 
 ---
 
@@ -37,6 +37,42 @@ A REST API combining a JWT-secured **task manager** and an SSRF-hardened **URL s
 - Owner-only management (read stats, delete)
 - Rate limited: 10 requests/minute per IP
 
+### WebSocket Real-Time Updates (v1.2.0)
+- Real-time task updates via WebSocket
+- JWT auth on connection, IDOR-proof subscriptions
+- Max 10 concurrent connections per user
+- 85 new tests
+
+### URL Shortener Abuse Prevention (v1.3.0)
+- Domain blocklist with canonical form matching
+- Homograph/typosquatting detection for top 50 domains
+- 100 URLs/day per user quota
+- Confidence score flagging system
+- Admin endpoints: blocklist management, flag review
+- 89 new tests
+
+### OAuth2 Google Login (v1.4.0)
+- PKCE flow (S256 only, no plain)
+- State parameter CSRF protection
+- Account merge: links Google to existing email
+- email_verified enforcement (prevents account takeover)
+- 50 new tests
+
+### Bulk Task Operations (v1.5.0)
+- POST /tasks/bulk-create (max 50)
+- PATCH /tasks/bulk-update (max 50)
+- DELETE /tasks/bulk-delete (max 50)
+- Partial success: { succeeded[], failed[] }
+- Rate limiting: each task counts as 1 request
+- 60 new tests
+
+### Immutable Audit Log (v1.6.0)
+- Tracks 20 event types across auth/tasks/urls/admin
+- PostgreSQL trigger enforces append-only at DB level
+- Admin-only query API with filtering and pagination
+- Non-blocking: audit failure never breaks main operation
+- 58 new tests
+
 ---
 
 ## 🏗️ Architecture
@@ -45,11 +81,14 @@ A REST API combining a JWT-secured **task manager** and an SSRF-hardened **URL s
 
 ```
 src/
-├── auth/          # JWT auth, refresh token rotation + reuse detection
-├── tasks/         # Task CRUD, assignment, filtering, ownership policy
-├── urls/          # URL shortener, SSRF validation, click tracking
+├── auth/          # JWT auth, refresh token rotation + reuse detection, OAuth2 (PKCE)
+├── tasks/         # Task CRUD, assignment, filtering, bulk ops, ownership policy
+├── urls/          # URL shortener, SSRF validation, abuse prevention, click tracking
+├── admin/         # Blocklist management, flag review, role administration
+├── audit/         # Immutable append-only audit log (routes, service, repository)
+├── ws/            # WebSocket real-time task updates (JWT auth, IDOR-proof)
 ├── users/         # User profile reads
-└── shared/        # Errors, JWT utils, logger, validation, audit, url-safety
+└── shared/        # Errors, JWT utils, logger, validation, audit, url-safety, result
 ```
 
 Each feature module is a vertical slice with the same internal layers:
@@ -70,7 +109,7 @@ Each feature module is a vertical slice with the same internal layers:
 
 ### Architecture Decisions (ADRs)
 
-This project documents **24 architecture decisions** in [`context/decisions.md`](context/decisions.md). Each records the context, the decision, the alternatives, and the trade-off.
+This project documents **49 architecture decisions** in [`context/decisions.md`](context/decisions.md). Each records the context, the decision, the alternatives, and the trade-off. The table below lists the foundational decisions (ADR-001…024); later ADRs (025–049) cover WebSocket auth, abuse prevention, OAuth2/PKCE, bulk-operation rate weighting, the repository Result pattern, and audit-log immutability.
 
 | ADR | Decision | Why |
 |-----|----------|-----|
@@ -139,20 +178,32 @@ Implemented in [`src/shared/url-safety.ts`](src/shared/url-safety.ts), validated
 - **URL validation:** structure + SSRF range-check before storage
 - **SQL injection:** prevented by Prisma parameterized queries (no raw string SQL)
 
+### Real Vulnerabilities Caught During Development
+
+| Feature | Finding | Severity | Resolution |
+|---------|---------|---------|------------|
+| URL Shortener | IPv4-mapped IPv6 SSRF bypass (`::ffff:7f00:1` hex form) | HIGH | Dual-form validation, fail-closed |
+| OAuth2 | Email-merge account takeover (unverified email) | CRITICAL | `email_verified===true` enforced |
+| OAuth2 | PKCE downgrade attack | HIGH | S256 mandatory, plain rejected |
+| OAuth2 | Callback CSRF via weak state | HIGH | Single-use signed state cookie |
+| WebSocket | IDOR subscription bypass | HIGH | `canAccessTask` predicate on every publish |
+| Bulk Operations | `z.intersection` strict rejection | P1 | `extend().refine()` pattern |
+| Audit Log | Client-controlled `actor_id` | HIGH | Server-derived identity only |
+
 ---
 
 ## ✅ Testing
 
 ### Results
 
-| Metric | Value |
-|--------|-------|
-| Total tests | 197 |
-| Passing | 197 (100%) |
-| Line coverage | 98.74% |
-| Branch coverage | 95.00% |
-| Function coverage | 98.16% |
-| TypeScript errors | 0 |
+| Metric | Result |
+|--------|--------|
+| Total tests | 616 passing |
+| Line coverage | 99.38% |
+| Branch coverage | 97.5% |
+| TypeScript build | ✅ exit 0 |
+| Security gate | ✅ STRIDE + OWASP |
+| Quality baseline | ✅ v1.4.0 |
 
 ### Test Strategy
 - **Unit tests** — pure functions and services, isolated, fast
@@ -216,14 +267,86 @@ Orchestrator
 ### Memory & Context
 - **agentmemory MCP** — lifecycle hooks persist and recall compressed, per-agent context across sessions
 - **`context/brief.md`** — shared scratchpad holding handoff state between agents
-- **`context/decisions.md`** — the permanent ADR store (24 records)
-- **`context/patterns.md`** — reusable patterns discovered during development (19 entries)
+- **`context/decisions.md`** — the permanent ADR store (49 records)
+- **`context/patterns.md`** — reusable patterns discovered during development (47+ entries)
 
 ### Token Efficiency
 - Only the relevant compressed context is injected per agent, instead of loading the full `CLAUDE.md` every time
 - The shared scratchpad prevents re-transmitting context between agents
 - Each agent reads only the `decisions.md` sections relevant to its domain
 - Net effect: agents keep full project context without loading every file
+
+### Recent Improvements (v2.1)
+
+**GEL-1: Hierarchy Enforcement**
+- Delegation matrix: only orchestrator spawns agents
+- Structured receipt protocol: every agent writes `AGENT/STATUS/TIER/KEY_DECISIONS/RECOMMENDED_NEXT`
+- Hierarchy Execution Log in brief.md
+- Session limit CHECKPOINT mechanism
+
+**GEL-2: Memory Integration**
+- agentmemory worker crash guard (watchdog + scheduled task)
+- Domain-specific recall queries per agent (4 queries each)
+- SubagentStart/SubagentStop hooks verified end-to-end
+- Cross-session learning: agents recall previous findings
+
+**GEL-3: Security Gate**
+- Mandatory security trigger matrix (auth/data/network/infra keywords)
+- Differential risk classification (HIGH/MEDIUM/LOW/SKIP per file)
+- Backend-dev pre-implementation security checklist
+- quality-lead blocks SHIP IT if security gate not completed
+- Structured SECURITY_PATTERN memory format
+
+**GEL-4: Context Budget (~91% token reduction)**
+- Section tagging: `<!-- agent: X -->` and `<!-- domain: X -->`
+- Each agent reads only relevant sections of brief.md
+- decisions.md filtered by domain tags
+- Measured: backend-dev reads 4-10% of brief.md
+
+**GEL-5: Quality Baseline**
+- `.quality-baseline.json`: complexity metrics, coverage thresholds
+- Baseline comparison on every review (complexity delta tracking)
+- `check-slop.ps1`: automated AI slop detection (7 patterns)
+- Baseline version increments on each major feature
+
+---
+
+## 🔧 Agent System Performance
+
+### Token Efficiency (measured)
+| Agent | Brief.md read | Total lines | Savings |
+|-------|--------------|-------------|---------|
+| backend-dev | ~210-690 lines | 4,774-6,547 | ~91% |
+| qa-engineer | ~370 lines | ~4,930 | ~92% |
+| db-engineer | 4 ADRs read | 49 total ADRs | ~92% |
+| All agents | domain sections only | full file | ~91% avg |
+
+### Memory System (verified)
+- 48+ memories across sessions
+- Cross-session recall verified: SSRF bypass finding recalled in subsequent feature (abuse prevention)
+- SubagentStart/SubagentStop hooks: end-to-end verified
+- Worker crash guard: watchdog script + Windows scheduled task
+
+### Quality Gates (6 features, 0 bypassed)
+| Feature | Security | Code Quality | Coverage | Ship |
+|---------|---------|-------------|---------|------|
+| WebSocket | ✅ | ✅ CLEAN | 98.46% | ✅ |
+| Abuse Prevention | ✅ | ✅ CLEAN | 99.2% | ✅ |
+| OAuth2 | ✅ | ✅ CLEAN | 99.28% | ✅ |
+| Bulk Operations | ✅ | ✅ CLEAN | ~100% | ✅ |
+| Result Refactor | ✅ | ✅ CLEAN | 97.35% | ✅ |
+| Audit Log | ✅ | ✅ CLEAN | 99.38% | ✅ |
+
+### Build Stats
+| Stat | Value |
+|------|-------|
+| Agent invocations | 60+ (across 6 major features) |
+| Security findings caught | 10+ (4 Critical/High pre-ship) |
+| Patterns learned | 47+ |
+| ADRs written | 49 |
+| Lines of code | ~18,000 |
+| Test files | 48 |
+| Quality baseline version | v1.4.0 |
 
 ---
 
@@ -311,6 +434,7 @@ All responses use a uniform envelope — `{ "success": true, "data": ... }` or `
 | `PATCH` | `/tasks/bulk-update` | Bearer | Global (N-weighted) | Update up to 50 tasks; partial-success result. |
 | `DELETE` | `/tasks/bulk-delete` | Bearer | Global (N-weighted) | Delete up to 50 tasks (owner-only per item); partial-success result. |
 | `GET` | `/users/me` | Bearer | Global | Authenticated user's profile. |
+| `GET` | `/audit-logs` | Bearer (admin) | Global | List audit entries (filter by event_type/actor_id/target_id/date range; newest first, max 100/page). |
 | `POST` | `/shorten` | Bearer | 10 / min | Create a 6-char short code. |
 | `GET` | `/:code` | None | Global | Resolve a code; `302` redirect. |
 | `GET` | `/:code/stats` | Bearer | Global | Click analytics (owner only). |
@@ -382,6 +506,24 @@ curl -L http://localhost:3000/abc123
 ## 📓 Changelog
 
 Recent releases (full history in [`CHANGELOG.md`](CHANGELOG.md)):
+
+### [1.6.0] — 2026-06-11
+- **Added:** Immutable audit log — `GET /audit-logs` (admin-only, filterable, paginated); tracks 20 event types across auth/tasks/urls/admin; non-blocking fire-and-forget emit.
+- **Security:** append-only enforced at the DB level via a PostgreSQL `BEFORE UPDATE OR DELETE` trigger; no cascade delete from users; server-derived `actor_id` (no client control).
+
+### [1.5.0] — 2026-06-11
+- **Added:** Bulk task operations — `POST /tasks/bulk-create`, `PATCH /tasks/bulk-update`, `DELETE /tasks/bulk-delete` (max 50 each); per-item partial-success results with no rollback.
+- **Security:** per-item authorization reuse; batch-size-weighted rate limiting (N-item batch costs N units).
+
+### [1.4.0] — 2026-06-10
+- **Added:** OAuth2 Google login — PKCE (S256) flow, account merge to existing email.
+- **Security:** `email_verified` enforcement (account-takeover prevention), single-use signed state cookie (callback CSRF), plain-PKCE rejected.
+
+### [1.3.0] — 2026-06-09
+- **Added:** URL shortener abuse prevention — domain blocklist, homograph/typosquatting detection, 100 URLs/day quota, confidence-score flagging, admin blocklist/flag-review endpoints.
+
+### [1.2.0] — 2026-06-09
+- **Added:** WebSocket real-time task updates — JWT auth on connection, IDOR-proof subscriptions, max 10 concurrent connections per user.
 
 ### [1.1.0] — 2026-06-09
 - **Added:** URL shortener — `POST /shorten`, `GET /:code` (302), `GET /:code/stats`, `DELETE /:code`; 6-char CSPRNG codes; click analytics; 10/min shorten rate limit.
