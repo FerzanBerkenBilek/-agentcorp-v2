@@ -53,6 +53,18 @@ enum FlagState {
   REJECTED
 }
 
+/// The set of target entity kinds an audit event can reference (ADR-045/048).
+/// Native enum (ADR-017 posture) rather than free String — a closed, validated
+/// vocabulary keeps the column self-describing and rejects typos at the DB
+/// boundary. Nullable on the row (some events have no single target, e.g. a
+/// failed login). NOT indexed: 4 values + NULL is near-zero selectivity.
+enum AuditTargetType {
+  task
+  url
+  user
+  blocklist_entry
+}
+
 // ─── Models ───────────────────────────────────────────────────────────────────
 
 /// A registered application user. Owns tasks and can be assigned tasks.
@@ -90,12 +102,12 @@ model User {
   updatedAt    DateTime @updatedAt @map("updated_at")
 
   /// Tasks created by this user (FK Task.ownerId, NOT NULL, CASCADE delete).
-  ownedTasks    Task[]         @relation("TaskOwner")
+  ownedTasks          Task[]          @relation("TaskOwner")
   /// Tasks assigned to this user (FK Task.assigneeId, NULLABLE, SET NULL).
-  assignedTasks Task[]         @relation("TaskAssignee")
-  refreshTokens RefreshToken[]
+  assignedTasks       Task[]          @relation("TaskAssignee")
+  refreshTokens       RefreshToken[]
   /// Short URLs created by this user (FK ShortUrl.ownerId, NOT NULL, CASCADE delete).
-  shortUrls     ShortUrl[]
+  shortUrls           ShortUrl[]
   /// Blocklist entries this (admin) user added (FK BlockedDomain.addedByUserId,
   /// NULLABLE, SET NULL — the block outlives the curator who added it).
   blockedDomainsAdded BlockedDomain[] @relation("BlockedDomainAddedBy")
@@ -139,7 +151,6 @@ model Task {
   // "Tasks assigned to me". Partial (WHERE assignee_id IS NOT NULL) is applied
   // in migration 002 to skip the many NULL-assignee rows.
   @@index([assigneeId])
-
   @@map("tasks")
 }
 
@@ -171,7 +182,6 @@ model RefreshToken {
   @@index([userId])
   // Expired-token cleanup cron: DELETE WHERE expires_at < now().
   @@index([expiresAt])
-
   @@map("refresh_tokens")
 }
 
@@ -210,7 +220,6 @@ model ShortUrl {
   // and "list my URLs". This REPLACES the standalone (owner_id) index from
   // migration 003 — the prefix subsumes it, so net index count stays flat.
   @@index([ownerId, createdAt])
-
   @@map("short_urls")
 }
 
@@ -223,15 +232,15 @@ model ShortUrl {
 /// UNIQUE-index equality probe on every POST /shorten. The block is immutable
 /// (add/remove only) — hence no `updated_at`.
 model BlockedDomain {
-  id        String   @id @default(uuid()) @db.Uuid
+  id            String   @id @default(uuid()) @db.Uuid
   // Canonical registrable domain. RFC 1035 caps a full domain name at 253 chars.
   // UNIQUE backs the hot equality probe AND enforces "one row per domain".
-  domain    String   @unique @db.VarChar(253)
+  domain        String   @unique @db.VarChar(253)
   // Free-text curator note (why it was blocked). Optional.
-  note      String?  @db.Text
+  note          String?  @db.Text
   // The admin who added the entry. NULLABLE + SET NULL: the block must outlive
   // the curator (deleting the admin must NOT delete the blocklist entry).
-  addedByUserId String? @map("added_by_user_id") @db.Uuid
+  addedByUserId String?  @map("added_by_user_id") @db.Uuid
   createdAt     DateTime @default(now()) @map("created_at")
 
   addedBy User? @relation("BlockedDomainAddedBy", fields: [addedByUserId], references: [id], onDelete: SetNull)
@@ -244,22 +253,22 @@ model BlockedDomain {
 /// approves it. `short_urls` therefore stays "live-only" — the redirect path
 /// needs no state filter. State machine + persistence rules: see FlagState.
 model FlaggedUrl {
-  id              String    @id @default(uuid()) @db.Uuid
-  candidateUrl    String    @map("candidate_url") @db.Text
+  id               String    @id @default(uuid()) @db.Uuid
+  candidateUrl     String    @map("candidate_url") @db.Text
   // Optional reserved short code (UNIQUE-when-present; multiple NULLs allowed by
   // Postgres). Supports both "reserve at flag" and "assign at approval" — the
   // exact timing is a backend AP-3 decision and does not change this shape.
-  proposedCode    String?   @unique @map("proposed_code") @db.VarChar(6)
-  ownerId         String    @map("owner_id") @db.Uuid
+  proposedCode     String?   @unique @map("proposed_code") @db.VarChar(6)
+  ownerId          String    @map("owner_id") @db.Uuid
   // Screening confidence 0–100. SMALLINT (not Decimal/float): an exact integer
   // band for deterministic threshold comparisons. CHECK(0..100) in migration 004.
-  confidenceScore Int       @map("confidence_score") @db.SmallInt
-  state           FlagState @default(PENDING)
-  flaggedReason   String    @map("flagged_reason") @db.Text
-  createdAt       DateTime  @default(now()) @map("created_at")
+  confidenceScore  Int       @map("confidence_score") @db.SmallInt
+  state            FlagState @default(PENDING)
+  flaggedReason    String    @map("flagged_reason") @db.Text
+  createdAt        DateTime  @default(now()) @map("created_at")
   // null until reviewed; set together with the terminal state transition.
-  reviewedAt      DateTime? @map("reviewed_at")
-  reviewedByUserId String?  @map("reviewed_by_user_id") @db.Uuid
+  reviewedAt       DateTime? @map("reviewed_at")
+  reviewedByUserId String?   @map("reviewed_by_user_id") @db.Uuid
 
   // Submitter. CASCADE: deleting the user removes their pending submissions.
   owner      User  @relation("FlaggedUrlOwner", fields: [ownerId], references: [id], onDelete: Cascade)
@@ -275,6 +284,75 @@ model FlaggedUrl {
   @@index([state, createdAt])
   // "my flagged submissions" + supports the owner CASCADE FK.
   @@index([ownerId])
-
   @@map("flagged_urls")
+}
+
+/// An append-only, DB-enforced-IMMUTABLE security/business audit event
+/// (ADR-045/048). Records WHO (actor_id) did WHAT (event_type) to WHICH object
+/// (target_id/target_type) FROM WHERE (ip_address/user_agent) WITH WHAT context
+/// (metadata), and WHEN (created_at). This table is the system of record for
+/// security forensics, so it is hardened against tampering at the database
+/// level: a BEFORE UPDATE OR DELETE trigger RAISES (migration 006) — no row may
+/// ever be mutated or removed once written. INSERT is the only legal operation.
+///
+/// Deliberately has NO relation/FK to User (ADR-045 §no-FK, security S7): the
+/// log MUST survive deletion of the actor (a deleted user's history is the MOST
+/// forensically valuable). actor_id is a stored string copy of users.id, never
+/// a joined foreign key — so a user-delete CASCADE can never erase audit history.
+/// Consequently the User model carries NO back-relation `auditLogs AuditLog[]`.
+///
+/// Has created_at but DELIBERATELY NO updated_at: an immutable row is never
+/// updated, so an "updated" timestamp would be a contradiction (and the trigger
+/// would block the very UPDATE that maintains it).
+model AuditLog {
+  id         String           @id @default(uuid()) @db.Uuid
+  /// Action name. String (NOT a Prisma enum): the vocabulary is the existing
+  /// AUDIT_ACTION enum in src/shared/audit.ts. Keeping it a VarChar lets the
+  /// app-layer enum evolve (add a new action) with NO migration — critical for an
+  /// append-only log whose table we must never ALTER under load. The app
+  /// validates against AUDIT_ACTION before insert; the DB stores the canonical
+  /// string. 100 chars >> longest action name.
+  eventType  String           @map("event_type") @db.VarChar(100)
+  /// WHO. Nullable string copy of users.id (NOT an FK). Nullable because some
+  /// events have no authenticated actor (anonymous redirect, failed login before
+  /// identification, system-initiated event). Survives user deletion by design.
+  actorId    String?          @map("actor_id") @db.Uuid
+  /// WHICH object the action targeted. Nullable string copy of the target row's
+  /// id (NOT an FK — the target may be any table, or none). Uuid type: every
+  /// in-scope target (task/url/user/blocklist_entry) has a UUID PK (ADR-016).
+  targetId   String?          @map("target_id") @db.Uuid
+  /// The kind of object target_id points at. Nullable native enum. Lets a reader
+  /// disambiguate a target_id without a join and lets a filter scope by kind.
+  targetType AuditTargetType? @map("target_type")
+  /// FROM WHERE. Nullable. VarChar(45) (full IPv6 incl. v4-mapped + zone) matches
+  /// how the app extracts the header as a string, avoids a parse/normalize step on
+  /// the fire-and-forget write path, and stores proxy-chain values verbatim for
+  /// forensics. PII — see ADR-047.
+  ipAddress  String?          @map("ip_address") @db.VarChar(45)
+  /// Client UA string. Nullable, free-text, length-capped (≤512 at the app).
+  /// PII-adjacent.
+  userAgent  String?          @map("user_agent") @db.VarChar(512)
+  /// Structured event context (e.g. {from,to} on a status change). Jsonb
+  /// (Postgres binary JSON). NOT NULL DEFAULT '{}' so every row carries a
+  /// well-formed object (readers never branch on null-vs-empty). NO secrets/PII
+  /// beyond what's already columned — the emitter enforces the ADR-046 allowlist.
+  metadata   Json             @default("{}") @db.JsonB
+  /// WHEN. timestamptz, server-set, IMMUTABLE. The sort+range key for every read.
+  /// timestamptz (NOT timestamp) so forensic timelines are unambiguous across TZ.
+  createdAt  DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  // NOTE: intentionally NO updatedAt / @updatedAt — the row is immutable.
+
+  // ── Indexes (data-lead index strategy, ADR-045/048) ───────────────────────
+  // Default newest-first scan + date-range, ALWAYS present. Leading
+  // created_at DESC lets the paginated "ORDER BY created_at DESC LIMIT 100" read
+  // straight off the index, no Sort node.
+  @@index([createdAt(sort: Desc)])
+  // Filter: event_type = ? (+ implicit newest-first). Composite so the equality
+  // narrows then the index yields rows pre-sorted by created_at DESC.
+  @@index([eventType, createdAt(sort: Desc)])
+  // Filter: actor_id = ? ("everything user X did"). Composite, same rationale.
+  @@index([actorId, createdAt(sort: Desc)])
+  // Filter: target_id = ? ("everything that happened to object Y"). Composite.
+  @@index([targetId, createdAt(sort: Desc)])
+  @@map("audit_logs")
 }

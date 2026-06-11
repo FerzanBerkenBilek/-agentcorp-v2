@@ -2,6 +2,8 @@ import { randomUUID } from 'crypto';
 import { Prisma } from '@prisma/client';
 import { FlagState, UserRole } from '@prisma/client';
 import type {
+  AuditLog,
+  AuditTargetType,
   BlockedDomain,
   FlaggedUrl,
   PrismaClient,
@@ -36,6 +38,7 @@ interface RefreshTokenRow extends RefreshToken {}
 interface ShortUrlRow extends ShortUrl {}
 interface BlockedDomainRow extends BlockedDomain {}
 interface FlaggedUrlRow extends FlaggedUrl {}
+interface AuditLogRow extends AuditLog {}
 
 /** Thrown to mimic Prisma's known-request-error envelope (code + meta). */
 class FakePrismaError extends Error {
@@ -60,6 +63,8 @@ export interface FakeStore {
   blockedDomains: Map<string, BlockedDomainRow>;
   /** Keyed by UUID id, mirroring flagged_urls. */
   flaggedUrls: Map<string, FlaggedUrlRow>;
+  /** Keyed by UUID id, mirroring audit_logs (append-only, immutable). */
+  auditLogs: Map<string, AuditLogRow>;
 }
 
 /**
@@ -122,6 +127,7 @@ export function createFakePrisma(): { prisma: PrismaClient; store: FakeStore } {
     shortUrls: new Map(),
     blockedDomains: new Map(),
     flaggedUrls: new Map(),
+    auditLogs: new Map(),
   };
 
   const user = {
@@ -447,6 +453,47 @@ export function createFakePrisma(): { prisma: PrismaClient; store: FakeStore } {
     },
   };
 
+  const auditLog = {
+    create: async (args: { data: AuditLogCreateData }): Promise<AuditLogRow> => {
+      const row: AuditLogRow = {
+        id: randomUUID(),
+        eventType: args.data.eventType,
+        actorId: args.data.actorId ?? null,
+        targetId: args.data.targetId ?? null,
+        targetType: args.data.targetType ?? null,
+        ipAddress: args.data.ipAddress ?? null,
+        userAgent: args.data.userAgent ?? null,
+        // metadata is JSONB DEFAULT '{}' in the DB; mirror the default here.
+        metadata: (args.data.metadata ?? {}) as AuditLogRow['metadata'],
+        createdAt: new Date(),
+      };
+      store.auditLogs.set(row.id, row);
+      return row;
+    },
+    findMany: async (args: AuditLogFindManyArgs): Promise<AuditLogRow[]> => {
+      const rows = filterAuditLogs(store, args.where);
+      // ORDER BY created_at DESC (the only sort the read API uses, ADR-048).
+      rows.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+      const skip = args.skip ?? 0;
+      const take = args.take ?? rows.length;
+      return rows.slice(skip, skip + take);
+    },
+    count: async (args: { where?: AuditLogWhere }): Promise<number> => {
+      return filterAuditLogs(store, args.where).length;
+    },
+    // IMMUTABILITY (ADR-045): audit_logs is append-only — the real DB has a
+    // BEFORE UPDATE OR DELETE trigger that RAISEs. The fake mirrors that so the
+    // app-level immutability contract is exercised without a live Postgres.
+    // Every update/delete THROWS (the repository exposes neither, so reaching
+    // here is a contract violation the test asserts on).
+    update: async (): Promise<never> => {
+      throw new FakePrismaError('P0001', 'audit_logs is append-only: UPDATE is not permitted (ADR-045)');
+    },
+    delete: async (): Promise<never> => {
+      throw new FakePrismaError('P0001', 'audit_logs is append-only: DELETE is not permitted (ADR-045)');
+    },
+  };
+
   const client = {
     user,
     task,
@@ -454,6 +501,7 @@ export function createFakePrisma(): { prisma: PrismaClient; store: FakeStore } {
     shortUrl,
     blockedDomain,
     flaggedUrl,
+    auditLog,
     // The tasks repository runs [findMany, count] inside a transaction.
     $transaction: async <T>(ops: Promise<T>[]): Promise<T[]> => Promise.all(ops),
     $disconnect: async (): Promise<void> => undefined,
@@ -501,6 +549,30 @@ interface FlaggedUrlCreateData {
 interface ShortUrlUpdateData {
   clickCount?: { increment: number };
   lastAccessedAt?: Date;
+}
+
+interface AuditLogCreateData {
+  eventType: string;
+  actorId?: string | null;
+  targetId?: string | null;
+  targetType?: AuditTargetType | null;
+  ipAddress?: string | null;
+  userAgent?: string | null;
+  metadata?: unknown;
+}
+
+interface AuditLogWhere {
+  eventType?: string;
+  actorId?: string;
+  targetId?: string;
+  createdAt?: { gte?: Date; lt?: Date };
+}
+
+interface AuditLogFindManyArgs {
+  where?: AuditLogWhere;
+  orderBy?: unknown;
+  skip?: number;
+  take?: number;
 }
 
 interface TaskWhere {
@@ -562,6 +634,35 @@ function filterTasks(store: FakeStore, where?: TaskWhere): TaskRow[] {
   }
   if (where?.priority !== undefined) {
     rows = rows.filter((t) => t.priority === where.priority);
+  }
+  return rows;
+}
+
+/**
+ * Apply the audit-log read filter (equality on event_type/actor_id/target_id +
+ * created_at range), mirroring the Prisma `where` the repository builds.
+ *
+ * @param store The in-memory store.
+ * @param where The optional filter clause.
+ * @returns The matching audit rows (unsorted).
+ */
+function filterAuditLogs(store: FakeStore, where?: AuditLogWhere): AuditLogRow[] {
+  let rows = [...store.auditLogs.values()];
+  if (where?.eventType !== undefined) {
+    rows = rows.filter((r) => r.eventType === where.eventType);
+  }
+  if (where?.actorId !== undefined) {
+    rows = rows.filter((r) => r.actorId === where.actorId);
+  }
+  if (where?.targetId !== undefined) {
+    rows = rows.filter((r) => r.targetId === where.targetId);
+  }
+  const range = where?.createdAt;
+  if (range?.gte !== undefined) {
+    rows = rows.filter((r) => r.createdAt.getTime() >= range.gte!.getTime());
+  }
+  if (range?.lt !== undefined) {
+    rows = rows.filter((r) => r.createdAt.getTime() < range.lt!.getTime());
   }
   return rows;
 }

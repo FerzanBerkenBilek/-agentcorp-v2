@@ -1,6 +1,8 @@
 import { FastifyInstance, FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { audit, AUDIT_ACTION, AuditAction } from '../shared/audit';
+import { AuditSink, NOOP_AUDIT_SINK, RequestContext } from '../shared/audit-sink';
+import { requestContext } from '../shared/request-context';
 import {
   csrfOriginGuard,
   REFRESH_COOKIE_NAME,
@@ -30,6 +32,26 @@ export interface AuthRoutesDeps {
   authService: AuthService;
   /** Transport-only Google OAuth2 client (ADR-038). */
   googleOAuthClient: GoogleOAuthClient;
+  /**
+   * Durable audit sink (ADR-049). Optional with a NOOP default so existing
+   * tests that do not inject it run unaffected (558 tests stay green).
+   */
+  auditSink?: AuditSink;
+}
+
+/**
+ * Build the audit provenance for an auth event whose actor is freshly resolved
+ * by the service (login/register/refresh/oauth) — there is no prior
+ * `authContext` on these public routes, so the verified actor id comes from the
+ * auth RESULT (server-derived, never a body field — security S2). ip/userAgent
+ * still come from the request.
+ *
+ * @param request The incoming request.
+ * @param actorId The server-resolved actor id, or null for a failed attempt.
+ * @returns The provenance context for the durable sink.
+ */
+function authContextFor(request: FastifyRequest, actorId: string | null): RequestContext {
+  return { ...requestContext(request), actorId };
 }
 
 /** Per-IP rate limit for the OAuth start/callback endpoints (reuse ADR-014 shape). */
@@ -74,7 +96,7 @@ export const authRoutes: FastifyPluginAsync<AuthRoutesDeps> = async (
   app: FastifyInstance,
   deps: AuthRoutesDeps,
 ): Promise<void> => {
-  const { authService, googleOAuthClient } = deps;
+  const { authService, googleOAuthClient, auditSink = NOOP_AUDIT_SINK } = deps;
 
   app.post(
     '/auth/register',
@@ -83,6 +105,12 @@ export const authRoutes: FastifyPluginAsync<AuthRoutesDeps> = async (
       const input = parseOrThrow(registerSchema, request.body);
       const result = await authService.register(input);
       audit(request.log, AUDIT_ACTION.REGISTER, { actorId: result.user.id, outcome: 'success' });
+      auditSink.record(AUDIT_ACTION.REGISTER, authContextFor(request, result.user.id), {
+        actorId: result.user.id,
+        resourceId: result.user.id,
+        targetType: 'user',
+        outcome: 'success',
+      });
       return sendSession(reply, result, HTTP_STATUS.CREATED);
     },
   );
@@ -94,6 +122,12 @@ export const authRoutes: FastifyPluginAsync<AuthRoutesDeps> = async (
       const input = parseOrThrow(loginSchema, request.body);
       const result = await authService.login(input);
       audit(request.log, AUDIT_ACTION.LOGIN, { actorId: result.user.id, outcome: 'success' });
+      auditSink.record(AUDIT_ACTION.LOGIN, authContextFor(request, result.user.id), {
+        actorId: result.user.id,
+        resourceId: result.user.id,
+        targetType: 'user',
+        outcome: 'success',
+      });
       return sendSession(reply, result, HTTP_STATUS.OK);
     },
   );
@@ -120,11 +154,27 @@ export const authRoutes: FastifyPluginAsync<AuthRoutesDeps> = async (
             jti: err.reuseJti,
             outcome: 'failure',
           });
+          auditSink.record(
+            AUDIT_ACTION.TOKEN_REUSE_DETECTED,
+            authContextFor(request, err.reuseUserId),
+            {
+              actorId: err.reuseUserId,
+              family: err.reuseFamily,
+              jti: err.reuseJti,
+              outcome: 'failure',
+            },
+          );
         }
         throw err;
       }
       audit(request.log, AUDIT_ACTION.TOKEN_REFRESH, {
         actorId: result.user.id,
+        outcome: 'success',
+      });
+      auditSink.record(AUDIT_ACTION.TOKEN_REFRESH, authContextFor(request, result.user.id), {
+        actorId: result.user.id,
+        resourceId: result.user.id,
+        targetType: 'user',
         outcome: 'success',
       });
       return sendSession(reply, result, HTTP_STATUS.OK);
@@ -135,6 +185,12 @@ export const authRoutes: FastifyPluginAsync<AuthRoutesDeps> = async (
     const raw = readRefreshCookie(request);
     const actorId = await authService.logout(raw);
     audit(request.log, AUDIT_ACTION.LOGOUT, { actorId, outcome: 'success' });
+    auditSink.record(AUDIT_ACTION.LOGOUT, authContextFor(request, actorId), {
+      actorId,
+      resourceId: actorId ?? undefined,
+      targetType: 'user',
+      outcome: 'success',
+    });
     reply.clearCookie(REFRESH_COOKIE_NAME, { path: REFRESH_COOKIE_PATH });
     return reply.send(ok({ loggedOut: true }));
   });
@@ -154,6 +210,10 @@ export const authRoutes: FastifyPluginAsync<AuthRoutesDeps> = async (
       state: tx.state,
     });
     audit(request.log, AUDIT_ACTION.OAUTH_START, { actorId: null, outcome: 'success' });
+    auditSink.record(AUDIT_ACTION.OAUTH_START, authContextFor(request, null), {
+      actorId: null,
+      outcome: 'success',
+    });
     return reply.redirect(url, HTTP_STATUS.FOUND);
   });
 
@@ -184,6 +244,10 @@ export const authRoutes: FastifyPluginAsync<AuthRoutesDeps> = async (
           actorId: null,
           outcome: 'failure',
         });
+        auditSink.record(AUDIT_ACTION.OAUTH_STATE_REJECTED, authContextFor(request, null), {
+          actorId: null,
+          outcome: 'failure',
+        });
         throw new AuthError('OAuth login failed');
       }
 
@@ -201,12 +265,23 @@ export const authRoutes: FastifyPluginAsync<AuthRoutesDeps> = async (
             actorId: null,
             outcome: 'failure',
           });
+          auditSink.record(AUDIT_ACTION.OAUTH_LINK_DENIED, authContextFor(request, null), {
+            actorId: null,
+            outcome: 'failure',
+          });
         }
         throw err;
       }
 
-      audit(request.log, OAUTH_KIND_AUDIT[result.kind], {
+      const kindAction = OAUTH_KIND_AUDIT[result.kind];
+      audit(request.log, kindAction, {
         actorId: result.user.id,
+        outcome: 'success',
+      });
+      auditSink.record(kindAction, authContextFor(request, result.user.id), {
+        actorId: result.user.id,
+        resourceId: result.user.id,
+        targetType: 'user',
         outcome: 'success',
       });
       return sendSession(reply, result, HTTP_STATUS.OK);

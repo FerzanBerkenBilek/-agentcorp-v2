@@ -25,6 +25,9 @@ import { UrlsService } from './urls/urls.service';
 import { adminRoutes } from './admin/admin.routes';
 import { AdminRepository } from './admin/admin.repository';
 import { AdminService } from './admin/admin.service';
+import { auditRoutes } from './audit/audit.routes';
+import { AuditRepository } from './audit/audit.repository';
+import { AuditService } from './audit/audit.service';
 import { ConnectionHub } from './ws/connection-hub';
 import { wsRoutes } from './ws/ws.routes';
 
@@ -128,6 +131,12 @@ function registerModules(app: FastifyInstance): void {
   // registered as the WS plugin's connection registry (the same instance).
   const connectionHub = new ConnectionHub();
 
+  // ADR-049: one durable audit service, injected as the fire-and-forget
+  // `auditSink` into the auth/tasks/urls/admin route plugins AND as the read
+  // service for the admin GET /audit-logs route (the same instance). It logs
+  // AUDIT_WRITE_FAILED via the app logger when a detached INSERT rejects.
+  const auditService = new AuditService(new AuditRepository(prisma), app.log);
+
   const authService = new AuthService(usersRepository, authRepository);
   // Transport-only Google OAuth2 client (ADR-038/039/040), constructed from the
   // validated config so the client_secret never leaves the config boundary (G18).
@@ -145,16 +154,19 @@ function registerModules(app: FastifyInstance): void {
   // ShortUrl via urlsService (ADR-032), so it depends on the same url service.
   const adminService = new AdminService(adminRepository, urlsService);
 
-  void app.register(authRoutes, { authService, googleOAuthClient });
-  void app.register(tasksRoutes, { tasksService });
+  void app.register(authRoutes, { authService, googleOAuthClient, auditSink: auditService });
+  void app.register(tasksRoutes, { tasksService, auditSink: auditService });
   void app.register(usersRoutes, { usersRepository });
   // URL shortener: the anonymous redirect (publicUrlsRoutes, NO authGuard) and
   // the authenticated shorten/stats/delete routes (urlsRoutes, behind authGuard).
   void app.register(publicUrlsRoutes, { urlsService });
-  void app.register(urlsRoutes, { urlsService, adminService });
+  void app.register(urlsRoutes, { urlsService, adminService, auditSink: auditService });
   // Abuse-prevention admin endpoints (ADR-031/032), all behind authGuard +
   // requireRole('admin') inside the plugin (R7/R8 — default deny).
-  void app.register(adminRoutes, { adminService });
+  void app.register(adminRoutes, { adminService, auditSink: auditService });
+  // ADR-049: the admin-only audit-log read API (GET /audit-logs), behind
+  // plugin-wide authGuard + requireRole(ADMIN).
+  void app.register(auditRoutes, { auditService });
   // Real-time task updates: the WS upgrade endpoint (its own handshake auth via
   // verifyAccessToken, NOT authGuard) wired to the shared hub (ADR-025).
   void app.register(wsRoutes, { hub: connectionHub });

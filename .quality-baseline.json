@@ -1,13 +1,26 @@
 {
   "generated": "2026-06-11T00:00:00Z",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "coverage": {
     "line_pct": 99.30,
     "branch_pct": 97.35,
     "function_pct": 99.10,
     "threshold_line": 90,
     "threshold_branch": 85,
-    "note": "FIX-IT-2026-06-11: RESTORED post-fix coverage recorded as new baseline (CLAUDE.md 'overall coverage improves -> update'). The ADR-044 refactor relocated P2002 conflict mapping into the 3 repos, temporarily dropping repo branch coverage; qa-engineer added 3 repository test files (urls/users/admin .repository.test.ts, 15 tests) covering the P2002->err and non-P2002->rethrow branches. The 3 repos are now 100% branch. Coverage rose ABOVE the pre-refactor baseline (was line 99.02 / branch 96.94 / function 98.63). Degradation below threshold = P1 finding."
+    "provisional_audit_run": {
+      "as_of": "2026-06-11 AUDIT-2026-06-11, qa-engineer suite PARTIAL/mid-flight",
+      "overall_line_pct": 98.78,
+      "overall_branch_pct": 97.07,
+      "overall_function_pct": 97.48,
+      "test_count": 583,
+      "test_files": 46,
+      "src_audit_line_pct": 89.92,
+      "src_audit_branch_pct": 87.5,
+      "audit_service_line_pct": 79.47,
+      "audit_service_branch_pct": 81.81,
+      "note": "PROVISIONAL — NOT the new authoritative baseline. code-quality ran coverage while qa-engineer was still adding audit tests (audit.repository.test.ts + audit-sink.test.ts + request-context.test.ts landed; audit.service.test.ts + an audit.routes integration test NOT yet landed). audit.service.ts uncovered lines 165-168 (AUDIT_WRITE_FAILED detached-insert catch) + 181-189 (query()) and audit.routes.ts 37-39 are exactly what the pending tests cover. line_pct/branch_pct above (99.30/97.35) are retained from the 1.3.0 authoritative run; quality-lead must RE-RECORD authoritative coverage from qa's FINAL Test Summary at the gate. If src/audit stays <95% line / audit.service.ts <90% line after qa completes -> automatic P1 coverage-degradation, re-route to qa."
+    },
+    "note": "FIX-IT-2026-06-11: RESTORED post-fix coverage recorded as authoritative baseline (CLAUDE.md 'overall coverage improves -> update'). The ADR-044 refactor relocated P2002 conflict mapping into the 3 repos, temporarily dropping repo branch coverage; qa-engineer added 3 repository test files (urls/users/admin .repository.test.ts, 15 tests) covering the P2002->err and non-P2002->rethrow branches. The 3 repos are now 100% branch. Coverage rose ABOVE the pre-refactor baseline (was line 99.02 / branch 96.94 / function 98.63). Degradation below threshold = P1 finding. v1.4.0 (AUDIT) adds the audit-module file entries below; authoritative coverage numbers await qa's completed suite (see provisional_audit_run)."
   },
   "complexity": {
     "files": [
@@ -181,6 +194,48 @@
         "note": "REFACTOR-RESULT-2026-06-11 (ADR-044): NEW. Result<T,E> discriminated union + ok + err constructors only. Zero branches (CC 1 total, ok/err are straight-line returns). No speculative unwrap/map/andThen slop — the sanctioned future transport, used today only at the 4 P2002 create seams."
       },
       {
+        "file": "src/audit/audit.repository.ts",
+        "complexity_points": 7,
+        "lines": 131,
+        "risk": "LOW",
+        "note": "AUDIT-2026-06-11 (ADR-049/ADR-010): NEW. ONLY Prisma importer in src/audit. insert():Promise<void> (NOT ADR-044 Result — fire-and-forget write, no recoverable conflict). findMany runs page+count in one $transaction, ORDER BY createdAt desc. buildWhere CC=6 (3 equality ifs + from/to range if + 2 inline spreads + base) — the module max, well under 10. No update/delete method (append-only, S5)."
+      },
+      {
+        "file": "src/audit/audit.service.ts",
+        "complexity_points": 9,
+        "lines": 191,
+        "risk": "LOW",
+        "note": "AUDIT-2026-06-11 (ADR-049/046): NEW. implements AuditSink. record() sync/void fires repo.insert WITHOUT await + single .catch->AUDIT_WRITE_FAILED (the one try/catch, ADR-049). buildMetadata CC=6 (5 allowlist guards + base) + FORBIDDEN_METADATA_KEYS redaction (ADR-046 fail-safe). Fastify-free (takes injected logger interface only). Max per-fn CC=6, file CC=9."
+      },
+      {
+        "file": "src/audit/audit.routes.ts",
+        "complexity_points": 2,
+        "lines": 42,
+        "risk": "LOW",
+        "note": "AUDIT-2026-06-11 (S1): NEW. GET /audit-logs behind plugin-wide authGuard+requireRole(ADMIN). Thin handler: parseOrThrow(auditQuerySchema)->service.query->ok(). actor_id is a filter, no per-user self-service branch (no IDOR). No business logic, no Prisma."
+      },
+      {
+        "file": "src/audit/audit.schemas.ts",
+        "complexity_points": 2,
+        "lines": 57,
+        "risk": "LOW",
+        "note": "AUDIT-2026-06-11 (S9): NEW. Zod filter: event_type in AUDIT_ACTION enum, actor_id/target_id uuid, from/to coerced + refine(from<=to), page/limit coerced + limit cap 100, .strict(). + AuditLogResponse DTO (S11 — only intended fields)."
+      },
+      {
+        "file": "src/shared/audit-sink.ts",
+        "complexity_points": 1,
+        "lines": 62,
+        "risk": "LOW",
+        "note": "AUDIT-2026-06-11 (ADR-049): NEW. Pure-types AuditSink port (record(action,ctx,fields):void) + RequestContext POJO + NOOP_AUDIT_SINK. Imports only AuditAction/AuditFields from shared/audit; zero Fastify, zero feature import. Mirrors NOOP_PUBLISHER (ADR-025) — the NOOP default keeps the 558 pre-existing tests green. CC 1 (no-op record)."
+      },
+      {
+        "file": "src/shared/request-context.ts",
+        "complexity_points": 4,
+        "lines": 38,
+        "risk": "LOW",
+        "note": "AUDIT-2026-06-11 (S2/S3/F3): NEW. Single provenance extractor: actorId=request.authContext.userId (JWT sub, never a body field), ip=request.ip (honours trustProxy, no x-forwarded-for hand-parse), userAgent length-capped 512. CC=4. The only file passing FastifyRequest -> RequestContext at the route boundary, keeping services Fastify-free."
+      },
+      {
         "file": "src/auth/auth.schemas.ts",
         "complexity_points": 2,
         "lines": 53,
@@ -270,9 +325,14 @@
     }
   },
   "source_files": {
-    "total": 38,
+    "total": 44,
     "test_files": 43,
     "test_count": 558,
+    "audit_provisional": {
+      "test_count": 583,
+      "test_files": 46,
+      "note": "AUDIT-2026-06-11: src grew by 6 source modules (audit.repository/service/routes/schemas.ts + shared/audit-sink.ts + shared/request-context.ts) -> total 38->44. test_count/test_files left at the authoritative 558/43; the 583/46 figure is the PARTIAL qa run code-quality observed while qa-engineer was still landing audit tests. quality-lead to promote 583/46 (or qa's final count) to authoritative test_count/test_files once qa's suite completes."
+    },
     "avg_lines": 97.0,
     "note": "FIX-IT-2026-06-11 (post ADR-044): test count corrected 543/40 -> 558/43. qa-engineer added 3 NEW repository test files to restore the P1 branch-coverage drop that code-quality + qa flagged after the refactor relocated P2002 conflict mapping into the repos: src/urls/urls.repository.test.ts (4 tests), src/users/users.repository.test.ts (7 tests), src/admin/admin.repository.test.ts (4 tests) = 15 new tests / 3 new files. These cover the relocated repo-level P2002->err(ConflictError) and non-P2002->rethrow branches; the 3 repos are now 100% branch. New test files spot-checked: zero ': any'/'as any'; each uses 'as unknown as PrismaClient' once at the injection boundary only (sanctioned pattern). Slop script re-run: CLEAN, 0 P1 / 0 P2, 55 TS files scanned. 'total' (38) counts non-test source modules (unchanged); test_files (43) counts *.test.ts."
   },
@@ -290,8 +350,22 @@
       "severity": "P3",
       "accepted_date": "2026-06-09",
       "resolution_plan": "Cover opportunistically if a bare-IPv6 accept case is ever added to the reject/accept matrix"
+    },
+    {
+      "file": "src/shared/audit.ts",
+      "issue": "AUDIT_ACTION.USER_ROLE_CHANGED ('admin.user_role_changed') is defined for vocabulary completeness but NOT emitted anywhere — no role-change endpoint exists in the codebase today (role is set only by the register default + the OAuth ladder). Conscious debt accepted so a future admin role-change op records to the durable trail without an enum edit. Not slop; intentional and documented by backend-dev.",
+      "severity": "P3",
+      "accepted_date": "2026-06-11",
+      "resolution_plan": "Wire auditSink.record(USER_ROLE_CHANGED, ...) at the call site when/if an admin role-change endpoint is added. tech-writer to note the enum value is reserved-but-unemitted."
+    },
+    {
+      "file": "src/audit/audit.service.ts",
+      "issue": "PROVISIONAL coverage gap at AUDIT review time: audit.service.ts 79.47% line / 81.81% branch (uncovered 165-168 AUDIT_WRITE_FAILED catch, 181-189 query()); src/audit 89.92% line overall, marginally under the 90% new-code line rule. Cause is qa-engineer being mid-flight (audit.service.test.ts + an audit.routes integration test not yet landed), NOT a structural defect. Expected to auto-clear when qa completes.",
+      "severity": "P2",
+      "accepted_date": "2026-06-11",
+      "resolution_plan": "RE-EVALUATE at the quality-lead gate against qa-engineer's FINAL Test Summary. If src/audit reaches >=95% line / >=85% branch -> REMOVE this entry (no code change). If audit.service.ts stays <90% line after qa completes -> ESCALATE to P1 coverage-degradation and re-route to qa-engineer."
     }
   ],
   "last_updated": "2026-06-11",
-  "updated_by": "code-quality (FIX-IT-2026-06-11: coverage-restore finalization; test count 558/43, coverage improved, known_debt unchanged)"
+  "updated_by": "code-quality (AUDIT-2026-06-11: v1.3.0->1.4.0; added 6 audit-module file entries (all LOW, max fn CC 6); coverage marked PROVISIONAL pending qa's parallel suite; known_debt += USER_ROLE_CHANGED enum-not-emitted (P3) + audit.service.ts provisional coverage HOLD (P2). Authoritative coverage to be re-recorded by quality-lead from qa's final Test Summary.)"
 }

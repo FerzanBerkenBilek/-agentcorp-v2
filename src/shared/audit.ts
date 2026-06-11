@@ -20,8 +20,16 @@ export const AUDIT_ACTION = {
   TASK_UPDATE: 'task.update',
   TASK_ASSIGN: 'task.assign',
   TASK_DELETE: 'task.delete',
+  // Bulk task operations (BULK-2026-06-11). Distinct actions so the durable
+  // audit trail can tell a single mutation from a batched one.
+  TASK_BULK_CREATE: 'task.bulk_create',
+  TASK_BULK_UPDATE: 'task.bulk_update',
+  TASK_BULK_DELETE: 'task.bulk_delete',
   URL_SHORTEN: 'url.shorten',
   URL_DELETE: 'url.delete',
+  // Moderation outcomes for a flagged candidate URL (admin acts on the queue).
+  URL_APPROVED: 'url.approved',
+  URL_REJECTED: 'url.rejected',
   // Abuse prevention (ADR-034/035, R14). Admin mutations + screen/quota events.
   URL_BLOCKED: 'url.blocked',
   URL_FLAGGED: 'url.flagged',
@@ -44,22 +52,46 @@ export const AUDIT_ACTION = {
   OAUTH_CREATE: 'auth.oauth_create',
   OAUTH_LINK_DENIED: 'auth.oauth_link_denied',
   OAUTH_STATE_REJECTED: 'auth.oauth_state_rejected',
+  // Admin user-role change (AUDIT-2026-06-11). Vocabulary completeness: no wired
+  // role-change endpoint exists today (role is set by the register default and
+  // the OAuth ladder only), so this action is defined but not yet emitted; it is
+  // here so a future admin role-change op records to the durable trail without a
+  // new enum edit.
+  USER_ROLE_CHANGED: 'admin.user_role_changed',
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTION)[keyof typeof AUDIT_ACTION];
 
-/** Structured fields recorded with every audit entry. */
+/**
+ * Structured fields recorded with every audit entry.
+ *
+ * This is a STRICT allowlist of non-sensitive identifiers (ADR-046): it must
+ * NEVER carry passwords/hashes, tokens/JWTs, PKCE verifiers/state, provider
+ * subjects, client secrets, raw bodies/headers, or any PII beyond the actor id.
+ * The durable audit sink (src/audit/audit.service.ts) builds the persisted
+ * `metadata` JSON from these fields only and runs a redaction pass before
+ * INSERT, so a careless caller fails safe.
+ */
 export interface AuditFields {
   /** The acting user's id, or null for unauthenticated attempts. */
   actorId: string | null;
   /** The id of the affected resource, if any. */
   resourceId?: string;
+  /**
+   * The kind of entity `resourceId` points at (audit_logs.target_type, ADR-048).
+   * Used only by the durable sink; the logger emitter ignores it.
+   */
+  targetType?: 'task' | 'url' | 'user' | 'blocklist_entry';
   /** Whether the action succeeded. */
   outcome: 'success' | 'failure';
   /** Refresh-token rotation family (TOKEN_REUSE_DETECTED context, ADR-012). */
   family?: string;
   /** Refresh-token jti (TOKEN_REUSE_DETECTED context, ADR-012). */
   jti?: string;
+  /** Non-sensitive enum reason for an outcome (e.g. a moderation decision). */
+  reason?: string;
+  /** Non-sensitive count (e.g. number of items in a bulk operation). */
+  count?: number;
 }
 
 /**

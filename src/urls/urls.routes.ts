@@ -2,9 +2,11 @@ import { ShortUrl } from '@prisma/client';
 import { FastifyInstance, FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
 import { AdminService } from '../admin/admin.service';
 import { audit, AUDIT_ACTION } from '../shared/audit';
+import { AuditSink, NOOP_AUDIT_SINK } from '../shared/audit-sink';
 import { authGuard, requireAuth } from '../shared/auth-context';
 import { HTTP_STATUS, ValidationError } from '../shared/errors';
 import { ok } from '../shared/http';
+import { requestContext } from '../shared/request-context';
 import { parseOrThrow } from '../shared/validate';
 import { codeParamSchema, shortenSchema } from './urls.schemas';
 import { QuotaExceededError, ShortenOutcome, UrlsService } from './urls.service';
@@ -18,6 +20,11 @@ export interface PublicUrlsRoutesDeps {
 export interface UrlsRoutesDeps extends PublicUrlsRoutesDeps {
   /** Admin service — used to persist a screening FLAG as a PENDING row (R25). */
   adminService: AdminService;
+  /**
+   * Durable audit sink (ADR-049). Optional with a NOOP default so existing
+   * tests that do not inject it run unaffected (558 tests stay green).
+   */
+  auditSink?: AuditSink;
 }
 
 /** Per-route rate limit on POST /shorten: 10 requests/minute/IP (M1 / ADR-014). */
@@ -72,13 +79,21 @@ async function handleShortenOutcome(
   request: FastifyRequest,
   reply: FastifyReply,
   adminService: AdminService,
+  auditSink: AuditSink,
   userId: string,
   outcome: ShortenOutcome,
 ): Promise<FastifyReply> {
+  const ctx = requestContext(request);
   if (outcome.decision === 'ALLOW') {
     audit(request.log, AUDIT_ACTION.URL_SHORTEN, {
       actorId: userId,
       resourceId: outcome.url.code,
+      outcome: 'success',
+    });
+    auditSink.record(AUDIT_ACTION.URL_SHORTEN, ctx, {
+      actorId: userId,
+      resourceId: outcome.url.code,
+      targetType: 'url',
       outcome: 'success',
     });
     return reply.status(HTTP_STATUS.CREATED).send(ok(toShortenResponse(outcome.url)));
@@ -96,6 +111,12 @@ async function handleShortenOutcome(
       resourceId: flagged.id,
       outcome: 'success',
     });
+    auditSink.record(AUDIT_ACTION.URL_FLAGGED, ctx, {
+      actorId: userId,
+      resourceId: flagged.id,
+      targetType: 'url',
+      outcome: 'success',
+    });
     return reply.status(HTTP_STATUS.ACCEPTED).send(
       ok({ status: 'pending_review', message: 'This URL has been submitted for review.' }),
     );
@@ -103,6 +124,11 @@ async function handleShortenOutcome(
 
   // BLOCK: nothing persisted; audit the rejection with the server-only reason.
   audit(request.log, AUDIT_ACTION.URL_BLOCKED, { actorId: userId, outcome: 'failure' });
+  auditSink.record(AUDIT_ACTION.URL_BLOCKED, ctx, {
+    actorId: userId,
+    targetType: 'url',
+    outcome: 'failure',
+  });
   throw new ValidationError(BLOCKED_MESSAGE, [{ path: 'url', message: 'blocked' }]);
 }
 
@@ -148,7 +174,7 @@ export const urlsRoutes: FastifyPluginAsync<UrlsRoutesDeps> = async (
   app: FastifyInstance,
   deps: UrlsRoutesDeps,
 ): Promise<void> => {
-  const { urlsService, adminService } = deps;
+  const { urlsService, adminService, auditSink = NOOP_AUDIT_SINK } = deps;
   app.addHook('preHandler', authGuard);
 
   app.post(
@@ -163,10 +189,15 @@ export const urlsRoutes: FastifyPluginAsync<UrlsRoutesDeps> = async (
       } catch (error) {
         if (error instanceof QuotaExceededError) {
           audit(request.log, AUDIT_ACTION.QUOTA_EXCEEDED, { actorId: userId, outcome: 'failure' });
+          auditSink.record(AUDIT_ACTION.QUOTA_EXCEEDED, requestContext(request), {
+            actorId: userId,
+            targetType: 'url',
+            outcome: 'failure',
+          });
         }
         throw error;
       }
-      return handleShortenOutcome(request, reply, adminService, userId, outcome);
+      return handleShortenOutcome(request, reply, adminService, auditSink, userId, outcome);
     },
   );
 
@@ -188,6 +219,12 @@ export const urlsRoutes: FastifyPluginAsync<UrlsRoutesDeps> = async (
     const { code } = parseOrThrow(codeParamSchema, request.params);
     await urlsService.delete(userId, code);
     audit(request.log, AUDIT_ACTION.URL_DELETE, { actorId: userId, resourceId: code, outcome: 'success' });
+    auditSink.record(AUDIT_ACTION.URL_DELETE, requestContext(request), {
+      actorId: userId,
+      resourceId: code,
+      targetType: 'url',
+      outcome: 'success',
+    });
     return reply.status(HTTP_STATUS.NO_CONTENT).send();
   });
 };

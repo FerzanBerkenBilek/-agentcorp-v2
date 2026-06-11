@@ -1,9 +1,11 @@
 import { BlockedDomain, FlaggedUrl, UserRole } from '@prisma/client';
 import { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import { audit, AUDIT_ACTION } from '../shared/audit';
+import { AuditSink, NOOP_AUDIT_SINK } from '../shared/audit-sink';
 import { authGuard, requireAuth, requireRole } from '../shared/auth-context';
 import { HTTP_STATUS, NotFoundError } from '../shared/errors';
 import { ok } from '../shared/http';
+import { requestContext } from '../shared/request-context';
 import { parseOrThrow } from '../shared/validate';
 import { AdminService } from './admin.service';
 import {
@@ -15,6 +17,11 @@ import {
 /** Dependencies injected into the admin route plugin. */
 export interface AdminRoutesDeps {
   adminService: AdminService;
+  /**
+   * Durable audit sink (ADR-049). Optional with a NOOP default so existing
+   * tests that do not inject it run unaffected (558 tests stay green).
+   */
+  auditSink?: AuditSink;
 }
 
 /** Per-route admin rate limit: 60 requests/minute/IP (R13; reuses the pattern). */
@@ -86,7 +93,7 @@ export const adminRoutes: FastifyPluginAsync<AdminRoutesDeps> = async (
   app: FastifyInstance,
   deps: AdminRoutesDeps,
 ): Promise<void> => {
-  const { adminService } = deps;
+  const { adminService, auditSink = NOOP_AUDIT_SINK } = deps;
   // Plugin-wide guards: authenticate, then require the ADMIN role (R7/R8).
   app.addHook('preHandler', authGuard);
   app.addHook('preHandler', requireRole(UserRole.ADMIN));
@@ -105,6 +112,12 @@ export const adminRoutes: FastifyPluginAsync<AdminRoutesDeps> = async (
       resourceId: entry.domain,
       outcome: 'success',
     });
+    auditSink.record(AUDIT_ACTION.BLOCKLIST_ADD, requestContext(request), {
+      actorId: userId,
+      resourceId: entry.domain,
+      targetType: 'blocklist_entry',
+      outcome: 'success',
+    });
     return reply.status(HTTP_STATUS.CREATED).send(ok(toBlockedDomainResponse(entry)));
   });
 
@@ -120,6 +133,12 @@ export const adminRoutes: FastifyPluginAsync<AdminRoutesDeps> = async (
       resourceId: domain,
       outcome: 'success',
     });
+    auditSink.record(AUDIT_ACTION.BLOCKLIST_REMOVE, requestContext(request), {
+      actorId: userId,
+      resourceId: domain,
+      targetType: 'blocklist_entry',
+      outcome: 'success',
+    });
     return reply.status(HTTP_STATUS.NO_CONTENT).send();
   });
 
@@ -133,6 +152,14 @@ export const adminRoutes: FastifyPluginAsync<AdminRoutesDeps> = async (
     const { id } = parseOrThrow(flaggedIdParamSchema, request.params);
     const { code } = await adminService.approveFlagged(userId, id);
     audit(request.log, AUDIT_ACTION.FLAG_APPROVE, { actorId: userId, resourceId: id, outcome: 'success' });
+    // Durable trail records the moderation OUTCOME action (url.approved) against
+    // the flagged-url target; the logger keeps the FLAG_APPROVE line (M8).
+    auditSink.record(AUDIT_ACTION.URL_APPROVED, requestContext(request), {
+      actorId: userId,
+      resourceId: id,
+      targetType: 'url',
+      outcome: 'success',
+    });
     return reply.send(ok({ code }));
   });
 
@@ -141,6 +168,12 @@ export const adminRoutes: FastifyPluginAsync<AdminRoutesDeps> = async (
     const { id } = parseOrThrow(flaggedIdParamSchema, request.params);
     await adminService.rejectFlagged(userId, id);
     audit(request.log, AUDIT_ACTION.FLAG_REJECT, { actorId: userId, resourceId: id, outcome: 'success' });
+    auditSink.record(AUDIT_ACTION.URL_REJECTED, requestContext(request), {
+      actorId: userId,
+      resourceId: id,
+      targetType: 'url',
+      outcome: 'success',
+    });
     return reply.status(HTTP_STATUS.NO_CONTENT).send();
   });
 };

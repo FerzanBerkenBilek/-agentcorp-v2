@@ -40,6 +40,8 @@ REST API for the Task Management service.
   - [GET /admin/flagged](#get-adminflagged)
   - [POST /admin/flagged/:id/approve](#post-adminflaggedidapprove)
   - [POST /admin/flagged/:id/reject](#post-adminflaggedidreject)
+- [Audit Log](#audit-log)
+  - [GET /audit-logs](#get-audit-logs)
 - [WebSocket — Real-Time Task Updates](#websocket--real-time-task-updates)
 
 ---
@@ -1813,6 +1815,160 @@ No request body.
 ```bash
 curl -i -X POST \
   http://localhost:3000/admin/flagged/7c9e6679-7425-40de-944b-e07fc1f90ae7/reject \
+  -H "Authorization: Bearer $ADMIN_TOKEN"
+```
+
+---
+
+## Audit Log
+
+An **immutable, append-only** record of security-relevant operations across the
+service. Every audited action (an auth event, a task or URL mutation, an admin
+action) is written to the `audit_logs` table as a side-effect of the operation
+that caused it, forming a tamper-resistant forensic trail.
+
+### Append-only — there are no write endpoints
+
+The audit log is **read-only over the API**. There is **no** create, update, or
+delete endpoint for audit entries, and there never will be: entries are written
+automatically, server-side, when an audited operation succeeds (or, for some auth
+events, fails). The only audit endpoint is the admin read API below.
+
+> **Why it's immutable (ADR-045 — dual-layer):** append-only is enforced in two
+> independent layers. (1) **Application:** the service exposes only an INSERT path
+> and a read path — no code can UPDATE or DELETE a row. (2) **Database:** a
+> PostgreSQL trigger rejects any `UPDATE` or `DELETE` against `audit_logs`, so
+> even a direct SQL statement (or a future code bug) cannot rewrite history. The
+> two layers are independent: defeating one still leaves the other.
+
+### How entries are written — fire-and-forget, never blocking (ADR-049)
+
+An audit write is **non-blocking**: the audited operation fires the INSERT and
+returns its own response *without waiting* for the audit row to commit. If the
+audit write ever fails it is logged server-side (`AUDIT_WRITE_FAILED`) and the
+main operation still succeeds — an audit failure can never fail or slow a user
+request. Conversely, a successful operation is **not** rolled back if its audit
+write is later found to have failed; the trail is best-effort-durable, not
+two-phase-committed with the operation.
+
+### What is — and isn't — recorded
+
+Each entry records server-derived provenance and a small, **allowlisted** set of
+non-sensitive context fields. It deliberately captures the actor's IP address and
+User-Agent (**operational PII**, retained for forensics), but **never** secrets:
+no passwords or hashes, no access/refresh tokens or JWTs, no OAuth `client_secret`,
+PKCE `code_verifier`, `state`, or provider `sub`, and no raw request bodies.
+
+> **Why `metadata` is a closed allowlist (ADR-046):** the `metadata` JSON is built
+> *only* from a typed allowlist of non-sensitive fields (e.g. `outcome`, `reason`,
+> `count`), and a fail-safe redaction pass drops any forbidden key before INSERT.
+> A careless caller therefore **cannot** persist a secret or PII into the durable,
+> admin-queryable store.
+
+### Tracked operations
+
+Audit entries are emitted across four families: **AUTH** (register, login,
+logout, token refresh, token-reuse detection, and the OAuth start/callback/
+link/create/deny/state-reject events), **TASKS** (create, update, assign, delete,
+and the bulk create/update/delete operations), **URLS** (shorten, delete,
+approve/reject, blocked, flagged, quota-exceeded), and **ADMIN** (blocklist
+add/remove, flag approve/reject).
+
+> **Reserved but not yet emitted:** the `admin.user_role_changed` action is
+> defined in the audit vocabulary for forward-compatibility, but **no entry is
+> ever written for it today** — there is no API endpoint that changes a user's
+> role (the role is set only by the registration default and the OAuth account
+> ladder, or by direct operator SQL). It is reserved so a future role-change
+> operation records to the trail without a vocabulary edit.
+
+### GET /audit-logs
+
+Read a filtered, paginated page of audit entries, **newest first**. This is the
+only audit endpoint.
+
+- **Auth:** Bearer access token, **admin role** (ADR-049 / default-deny). A
+  non-admin can never read the trail — not even their own rows: `actor_id` is an
+  admin **filter**, not a per-user self-service scope.
+
+**Request headers**
+
+| Header | Value | Required |
+|---|---|---|
+| `Authorization` | `Bearer <accessToken>` (admin-role token) | Yes |
+
+**Query parameters**
+
+All filters are optional; an empty query returns the unfiltered, newest-first
+first page. Unknown query keys are rejected.
+
+| Param | Type | Required | Default | Constraints |
+|---|---|---|---|---|
+| `event_type` | string (enum) | No | — | Must be one of the known audit action values (e.g. `auth.login`, `task.create`, `url.shorten`, `admin.blocklist_add`). A value outside the closed set is rejected. |
+| `actor_id` | string (UUID) | No | — | Filter to events by this acting user. |
+| `target_id` | string (UUID) | No | — | Filter to events affecting this target resource. |
+| `from` | string (ISO-8601) | No | — | Inclusive lower bound on `created_at`. |
+| `to` | string (ISO-8601) | No | — | Inclusive upper bound on `created_at`. Must be on or after `from` (an inverted range is rejected). |
+| `page` | integer | No | `1` | ≥ 1. Coerced from string. |
+| `limit` | integer | No | `20` | 1–100 (hard cap). Coerced from string. |
+
+**Response fields** — each item in `data.items`:
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | string (UUID) | The audit entry id. |
+| `eventType` | string | The audited action (e.g. `auth.login`). |
+| `actorId` | string (UUID) \| null | The acting user, or `null` for an unauthenticated attempt. |
+| `targetId` | string (UUID) \| null | The affected resource, if any. |
+| `targetType` | string \| null | The kind of target: `task`, `url`, `user`, or `blocklist_entry` (`null` when the event has no single target). |
+| `ipAddress` | string \| null | The request IP (operational PII). |
+| `userAgent` | string \| null | The request User-Agent (operational PII). |
+| `metadata` | object | Non-sensitive allowlisted context (e.g. `outcome`, `reason`, `count`). Never contains secrets or tokens. |
+| `createdAt` | string (ISO-8601) | When the entry was recorded. |
+
+**Success — `200 OK`**
+
+```json
+{
+  "success": true,
+  "data": {
+    "items": [
+      {
+        "id": "b1d4e2a0-7c3f-4a9e-9f21-0c8e5a1b2d34",
+        "eventType": "admin.blocklist_add",
+        "actorId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+        "targetId": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+        "targetType": "blocklist_entry",
+        "ipAddress": "203.0.113.7",
+        "userAgent": "curl/8.4.0",
+        "metadata": { "outcome": "success" },
+        "createdAt": "2026-06-11T09:30:00.000Z"
+      }
+    ],
+    "pageInfo": { "page": 1, "limit": 20, "total": 1, "totalPages": 1 }
+  }
+}
+```
+
+**Errors**
+
+| Status | `code` | Cause |
+|---|---|---|
+| `401` | `AUTH_ERROR` | Missing/invalid access token. |
+| `403` | `FORBIDDEN` | Authenticated, but not an admin. |
+| `422` | `VALIDATION_ERROR` | Non-UUID `actor_id`/`target_id`, an `event_type` outside the known set, an inverted `from`/`to` range, `limit` > 100, a non-integer `page`/`limit`, or an unknown query key. |
+| `429` | `RATE_LIMIT_EXCEEDED` | More than 100 requests / min from this IP (global default limit). |
+
+**curl**
+
+```bash
+ADMIN_TOKEN="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."   # token of an ADMIN-role user
+
+# Newest-first first page (unfiltered)
+curl -s http://localhost:3000/audit-logs \
+  -H "Authorization: Bearer $ADMIN_TOKEN"
+
+# Filtered: a user's login events in a date range, second page of 50
+curl -s "http://localhost:3000/audit-logs?event_type=auth.login&actor_id=3fa85f64-5717-4562-b3fc-2c963f66afa6&from=2026-06-01T00:00:00Z&to=2026-06-11T23:59:59Z&page=2&limit=50" \
   -H "Authorization: Bearer $ADMIN_TOKEN"
 ```
 

@@ -1,9 +1,11 @@
 import { FastifyBaseLogger, FastifyInstance, FastifyPluginAsync } from 'fastify';
 import { audit, AUDIT_ACTION, AuditAction } from '../shared/audit';
+import { AuditSink, NOOP_AUDIT_SINK, RequestContext } from '../shared/audit-sink';
 import { authGuard, requireAuth } from '../shared/auth-context';
 import { HTTP_STATUS } from '../shared/errors';
 import { ApiSuccess, ok } from '../shared/http';
 import { chargeAdditionalUnits } from '../shared/rate-limit-weight';
+import { requestContext } from '../shared/request-context';
 import { TaskResponse, toTaskResponse } from '../shared/task-serializer';
 import { parseOrThrow } from '../shared/validate';
 import { BulkFailure, BulkResult, InternalErrorSink, TasksService } from './tasks.service';
@@ -28,17 +30,26 @@ interface BulkResponse {
  * and emit one audit line per item with its REAL outcome (L1). Keeping this in
  * one place keeps the three bulk handlers thin and free of branching logic.
  *
+ * The logger action (`actionFor`) is kept verbatim (the existing per-item
+ * task.create/update/assign/delete line, M8); the durable DB sink records the
+ * dedicated bulk action (`sinkAction`, e.g. task.bulk_create) so the forensic
+ * trail can tell a batched mutation from a single one (ADR-049).
+ *
  * @param result The aggregated per-item outcomes from the service.
  * @param log The request logger for the audit lines.
- * @param actorId The authenticated caller (audit actor).
- * @param actionFor Picks the audit action for an item by its index (create/update/assign/delete).
+ * @param ctx Server-derived provenance (actor/ip/userAgent) for the durable sink.
+ * @param actionFor Picks the LOGGER audit action by item index (create/update/assign/delete).
+ * @param sinkAction The single durable DB action for this batch (task.bulk_*).
+ * @param auditSink The durable audit sink (NOOP by default).
  * @returns The success-enveloped bulk response.
  */
 function buildBulkResponse(
   result: BulkResult,
   log: FastifyBaseLogger,
-  actorId: string,
+  ctx: RequestContext,
   actionFor: (index: number) => AuditAction,
+  sinkAction: AuditAction,
+  auditSink: AuditSink,
 ): ApiSuccess<BulkResponse> {
   const succeeded: TaskResponse[] = [];
   const failed: BulkFailure[] = [];
@@ -49,10 +60,15 @@ function buildBulkResponse(
       // every success carries the task body (create/update/delete snapshot).
       succeeded.push(toTaskResponse(outcome.task));
     }
-    audit(log, actionFor(index), {
-      actorId,
+    const outcomeValue: 'success' | 'failure' = outcome.reason !== undefined ? 'failure' : 'success';
+    // Logger audit (M8, unchanged action + fields) ...
+    audit(log, actionFor(index), { actorId: ctx.actorId, resourceId: outcome.id, outcome: outcomeValue });
+    // ... + durable DB mirror under the dedicated bulk action (ADR-049).
+    auditSink.record(sinkAction, ctx, {
+      actorId: ctx.actorId,
       resourceId: outcome.id,
-      outcome: outcome.reason !== undefined ? 'failure' : 'success',
+      targetType: 'task',
+      outcome: outcomeValue,
     });
   });
   return ok({ succeeded, failed });
@@ -61,6 +77,11 @@ function buildBulkResponse(
 /** Dependencies injected into the tasks routes plugin. */
 export interface TasksRoutesDeps {
   tasksService: TasksService;
+  /**
+   * Durable audit sink (ADR-049). Optional with a NOOP default so existing
+   * tests that do not inject it run unaffected (558 tests stay green).
+   */
+  auditSink?: AuditSink;
 }
 
 /**
@@ -76,7 +97,7 @@ export const tasksRoutes: FastifyPluginAsync<TasksRoutesDeps> = async (
   app: FastifyInstance,
   deps: TasksRoutesDeps,
 ): Promise<void> => {
-  const { tasksService } = deps;
+  const { tasksService, auditSink = NOOP_AUDIT_SINK } = deps;
   app.addHook('preHandler', authGuard);
 
   app.post('/tasks', async (request, reply) => {
@@ -84,6 +105,12 @@ export const tasksRoutes: FastifyPluginAsync<TasksRoutesDeps> = async (
     const input = parseOrThrow(createTaskSchema, request.body);
     const task = await tasksService.create(userId, input);
     audit(request.log, AUDIT_ACTION.TASK_CREATE, { actorId: userId, resourceId: task.id, outcome: 'success' });
+    auditSink.record(AUDIT_ACTION.TASK_CREATE, requestContext(request), {
+      actorId: userId,
+      resourceId: task.id,
+      targetType: 'task',
+      outcome: 'success',
+    });
     return reply.status(HTTP_STATUS.CREATED).send(ok(toTaskResponse(task)));
   });
 
@@ -108,6 +135,12 @@ export const tasksRoutes: FastifyPluginAsync<TasksRoutesDeps> = async (
     const task = await tasksService.update(userId, id, input);
     const action = 'assigneeId' in input ? AUDIT_ACTION.TASK_ASSIGN : AUDIT_ACTION.TASK_UPDATE;
     audit(request.log, action, { actorId: userId, resourceId: id, outcome: 'success' });
+    auditSink.record(action, requestContext(request), {
+      actorId: userId,
+      resourceId: id,
+      targetType: 'task',
+      outcome: 'success',
+    });
     return reply.send(ok(toTaskResponse(task)));
   });
 
@@ -116,6 +149,12 @@ export const tasksRoutes: FastifyPluginAsync<TasksRoutesDeps> = async (
     const { id } = parseOrThrow(taskIdParamSchema, request.params);
     await tasksService.delete(userId, id);
     audit(request.log, AUDIT_ACTION.TASK_DELETE, { actorId: userId, resourceId: id, outcome: 'success' });
+    auditSink.record(AUDIT_ACTION.TASK_DELETE, requestContext(request), {
+      actorId: userId,
+      resourceId: id,
+      targetType: 'task',
+      outcome: 'success',
+    });
     return reply.status(HTTP_STATUS.NO_CONTENT).send();
   });
 
@@ -133,7 +172,14 @@ export const tasksRoutes: FastifyPluginAsync<TasksRoutesDeps> = async (
     // H5/ADR-043: an N-item batch costs N units on the global limiter, not 1.
     await chargeAdditionalUnits(request, reply, input.items.length);
     const result = await tasksService.bulkCreate(userId, input, internalSink(request.log));
-    const body = buildBulkResponse(result, request.log, userId, () => AUDIT_ACTION.TASK_CREATE);
+    const body = buildBulkResponse(
+      result,
+      request.log,
+      requestContext(request),
+      () => AUDIT_ACTION.TASK_CREATE,
+      AUDIT_ACTION.TASK_BULK_CREATE,
+      auditSink,
+    );
     return reply.status(HTTP_STATUS.OK).send(body);
   });
 
@@ -143,8 +189,14 @@ export const tasksRoutes: FastifyPluginAsync<TasksRoutesDeps> = async (
     // H5/ADR-043: an N-item batch costs N units on the global limiter, not 1.
     await chargeAdditionalUnits(request, reply, input.items.length);
     const result = await tasksService.bulkUpdate(userId, input, internalSink(request.log));
-    const body = buildBulkResponse(result, request.log, userId, (index) =>
-      'assigneeId' in input.items[index] ? AUDIT_ACTION.TASK_ASSIGN : AUDIT_ACTION.TASK_UPDATE,
+    const body = buildBulkResponse(
+      result,
+      request.log,
+      requestContext(request),
+      (index) =>
+        'assigneeId' in input.items[index] ? AUDIT_ACTION.TASK_ASSIGN : AUDIT_ACTION.TASK_UPDATE,
+      AUDIT_ACTION.TASK_BULK_UPDATE,
+      auditSink,
     );
     return reply.status(HTTP_STATUS.OK).send(body);
   });
@@ -155,7 +207,14 @@ export const tasksRoutes: FastifyPluginAsync<TasksRoutesDeps> = async (
     // H5/ADR-043: an N-id batch costs N units on the global limiter, not 1.
     await chargeAdditionalUnits(request, reply, input.ids.length);
     const result = await tasksService.bulkDelete(userId, input, internalSink(request.log));
-    const body = buildBulkResponse(result, request.log, userId, () => AUDIT_ACTION.TASK_DELETE);
+    const body = buildBulkResponse(
+      result,
+      request.log,
+      requestContext(request),
+      () => AUDIT_ACTION.TASK_DELETE,
+      AUDIT_ACTION.TASK_BULK_DELETE,
+      auditSink,
+    );
     return reply.status(HTTP_STATUS.OK).send(body);
   });
 };

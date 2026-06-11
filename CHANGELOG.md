@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+> **Recommended version on release: `1.6.0`** — additive minor (a new admin
+> endpoint and a new durable audit subsystem; no breaking change to any existing
+> endpoint). The version is stamped from `package.json` at release time, following
+> the prior cadence (v1.2.0 → v1.5.0). The `### Added` block below is the
+> user-facing release note; the `### Internal` block is the prior (unreleased)
+> repository-layer change.
+
+### Added
+
+- **Immutable audit log.** A new **append-only** `audit_logs` store records
+  security-relevant operations across the service (AUTH, TASKS, URLS, ADMIN) as a
+  tamper-resistant forensic trail. Entries are written **automatically** as a
+  side-effect of the operation that causes them — there are **no** create, update,
+  or delete endpoints for audit entries, and there never will be. Each entry
+  records server-derived provenance (actor id, IP address, User-Agent) plus a
+  small allowlist of non-sensitive `metadata` (e.g. `outcome`, `reason`, `count`);
+  it **never** stores secrets, tokens, PKCE/OAuth material, or raw bodies
+  (ADR-046). See the [API reference](docs/api.md#audit-log).
+- **Admin-only audit query API — `GET /audit-logs`.** A new endpoint lets an
+  **admin** read a filtered, paginated page of audit entries, **newest first**.
+  Filters (all optional): `event_type` (closed set), `actor_id` (UUID),
+  `target_id` (UUID), and a `from`/`to` ISO-8601 date range; pagination via `page`
+  and `limit` (1–100, default 20). A non-admin is rejected `403`, an
+  unauthenticated request `401`, and a malformed query `422`. `actor_id` is an
+  admin **filter**, not a per-user self-scope, so there is no self-service read
+  path. See the [API reference](docs/api.md#get-audit-logs).
+- **Database-enforced immutability (ADR-045).** Append-only is guaranteed in two
+  independent layers: the application exposes only INSERT + read paths, **and** a
+  PostgreSQL trigger rejects any `UPDATE`/`DELETE` against `audit_logs`. Even a
+  direct SQL statement cannot rewrite history.
+- **Non-blocking, fire-and-forget integration (ADR-049).** An audit write never
+  blocks, fails, or slows the audited operation: the INSERT is fired without being
+  awaited, and a write failure is logged server-side (`AUDIT_WRITE_FAILED`) while
+  the main operation still succeeds.
+
+### Notes / Known limitations
+
+- **`admin.user_role_changed` reserved, not emitted.** This audit action is
+  defined in the vocabulary for forward-compatibility, but **no entry is written
+  for it today** — there is no API endpoint that changes a user's role. It is
+  reserved so a future role-change operation records to the trail without a
+  vocabulary edit.
+- **PII retention/purge deferred (ADR-047).** Audit entries retain operational
+  PII (IP address, User-Agent) for forensics. A scheduled retention/purge job for
+  this PII is **specified but deferred** — not implemented in this release.
+
 ### Internal
 
 - **Repository conflict seam now returns `Result<T, E>` instead of throwing
