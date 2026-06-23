@@ -259,7 +259,34 @@ Step 6 — Handle quality gate:
     - Re-run quality-lead
     - Do not ship until SHIP IT received
 
-Step 7 — Synthesize and report:
+Step 7 — Brief.md health check (run at the START of every orchestrator
+invocation, before writing the plan):
+
+  a) Count lines in context/brief.md:
+     (Get-Content context/brief.md).Count
+
+  b) If line count > 3000:
+     FIRST make a safety copy (context/ may not be git-tracked):
+       Copy-Item context/brief.md context/brief.md.bak -Force
+     THEN run: .\scripts\rotate-brief.ps1 -KeepLast 2
+     Report to user: 'brief.md rotated: {old} -> {new} lines,
+     {N} phases archived to context/archive/ (.bak saved)'
+
+  c) If line count > 3000 but rotate-brief.ps1 does not exist in this
+     project's scripts/ folder: copy it from
+     agentcorp-v2/scripts/rotate-brief.ps1 (path-independent, safe),
+     then do step (b).
+
+  d) Continue with normal task planning.
+
+  NOTE: the phase-boundary regex assumes '## Orchestrator Output — ...'
+  headers. Before first use in a NEW project, run once with -DryRun and
+  confirm the reported phase count matches reality; if it reports 0
+  phases on a non-empty brief, the header format differs and the regex
+  must be adapted — do NOT run a live rotation until the dry-run count
+  is correct.
+
+Step 8 — Synthesize and report:
   Read all agent outputs from brief.md.
   Write final report to user with:
     - What was built
