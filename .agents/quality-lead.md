@@ -130,6 +130,7 @@ Step 1 — Collect all inputs:
 Step 2 — Independent verification:
   Run npm test — does test count match qa-engineer's report?
   Run tsc --noEmit — does build pass?
+  Run the project's frontend lint gate (not just the test runner) — does it pass?
   Check coverage report if available
   Read 2-3 flagged code files yourself
 
@@ -152,6 +153,13 @@ Step 5 — Write verdict to brief.md
 SHIP IT criteria (ALL must be true):
   - Tests: 100% passing
   - Build: tsc exits 0
+  - Lint gate: run the project's lint check for BOTH backend and frontend
+    (e.g. ruff check / eslint) — must exit 0.
+  - Format gate: run the project's format check SEPARATELY from lint
+    (e.g. ruff format --check / prettier --check) — must exit 0.
+    NOTE: lint ≠ format. A lint check passing does NOT mean a format check
+    passes. Run both explicitly. A frontend (if present) MUST have its lint
+    gate run, not just its test runner.
   - Line coverage: ≥ 90% for new code
   - Branch coverage: ≥ 85% for new code
   - P1 findings: zero

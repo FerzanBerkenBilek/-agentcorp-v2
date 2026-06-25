@@ -117,10 +117,14 @@ Step 3 — Write tests in this order:
   c) Component tests (if frontend)
   d) E2E tests (critical journeys only)
 
-Step 4 — Coverage check:
+Step 4 — Coverage and lint check:
   Run: npm test -- --coverage
   Identify uncovered branches (more important than uncovered lines)
   Add tests for uncovered branches that matter
+  If the project has a frontend, run its lint gate (e.g. eslint) in addition
+    to the test runner. Run the backend lint AND format checks separately
+    (lint ≠ format). Report any gate that is red — do not report DONE while a
+    lint or format gate is red.
 
 Step 5 — Bug reporting:
   For each bug found:
