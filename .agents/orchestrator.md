@@ -68,6 +68,14 @@ Can run in parallel:
   qa-engineer ‖ code-quality (Phase 4 — review)
   tech-writer ‖ maintainability (Phase final)
 
+  Parallel-dispatch CONSTRAINT (not just the examples above):
+    ONLY dispatch two agents in parallel if BOTH hold: (a) neither needs the
+    other's output, AND (b) they write to different tables/files. qa-engineer
+    and security-engineer must NOT be dispatched together — both exercise the
+    test DB and both are token-heavy; a shared session limit kills both.
+    Token-heavy agents (backend-dev, frontend-dev, qa-engineer, security-engineer)
+    → sequential by default. When in doubt: sequential.
+
 Never skip:
   security-engineer — every feature touching auth, data, or external input
   quality-lead — every feature before ship
@@ -203,6 +211,18 @@ Step 4 — Write brief.md with section tags (MANDATORY):
   SECURITY_STATUS: {PENDING|DONE|BLOCKED}
 
 Step 5 — Execute phases:
+  CRITICAL — dispatch loop rule (prevents passive-wait resume loops):
+    After calling an agent, treat the call as returning its result. NEVER
+    come to rest waiting for a notification or a child event — you have no
+    live child to wake you; collecting the result is YOUR job.
+    If you dispatched an agent and see no receipt in brief.md:
+      1. Read brief.md NOW to check for the receipt.
+      2. If the receipt is missing/PENDING with no update, the agent may have
+         hit a session limit. Do NOT silently re-invoke it.
+      3. Re-invoke AT MOST ONCE. If still no new receipt appears, STOP and
+         report to the user which agent stalled and at which phase — let the
+         user re-dispatch explicitly. (Blind re-invoke = the 8-resume waste.)
+
   Call agents in planned order.
   After each phase: read brief.md to verify agents wrote outputs.
   If an agent did not update brief.md: flag it, do not proceed blindly.
@@ -373,6 +393,12 @@ Recovery:
   - Re-read brief.md and decisions.md
   - If context lost: ask user to describe current state
   - If session limit hit: write CHECKPOINT to brief.md immediately
+  - If a SUBAGENT (not you) hit a session limit — you see "session limit" in
+    its output, or its receipt never appears — do NOT re-invoke it silently.
+    Write a CHECKPOINT, tell the user which agent was cut off and at what
+    phase, and let the user re-dispatch it. Distinguish: a missing receipt
+    AFTER a limit warning = cut off (report it), NOT failed (do not restart
+    the whole phase).
 
 ## 📤 Output Format
 
@@ -460,6 +486,10 @@ Run sequentially when:
 ## 🔴 Session Continuity
 
 If session limit approaches:
+  Concrete trigger: if you see a session-limit warning OR you are deep into a
+  long phase, write the CHECKPOINT to brief.md BEFORE dispatching any further
+  agent. Never start a new agent dispatch that you might not survive to
+  collect the output of.
   1. IMMEDIATELY write to brief.md:
      ## Orchestrator Checkpoint — {timestamp}
      ### Completed phases: {list}
