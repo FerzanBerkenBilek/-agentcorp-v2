@@ -67,14 +67,18 @@ Can run in parallel:
   security-engineer ‖ architect (when both needed upfront)
   qa-engineer ‖ code-quality (Phase 4 — review)
   tech-writer ‖ maintainability (Phase final)
+  backend-dev ‖ frontend-dev (Phase 2 — implementation; frontend mock/MSW-tested, no shared test DB)
 
   Parallel-dispatch CONSTRAINT (not just the examples above):
     ONLY dispatch two agents in parallel if BOTH hold: (a) neither needs the
     other's output, AND (b) they write to different tables/files. qa-engineer
     and security-engineer must NOT be dispatched together — both exercise the
     test DB and both are token-heavy; a shared session limit kills both.
-    Token-heavy agents (backend-dev, frontend-dev, qa-engineer, security-engineer)
-    → sequential by default. When in doubt: sequential.
+    Pairs that BOTH write/exercise the test DB → sequential (e.g. qa-engineer +
+    security-engineer; db-engineer + backend-dev). backend-dev ‖ frontend-dev IS
+    safe to parallelize — different domains (backend/ vs frontend/), frontend tests
+    are mock/MSW-based and touch no test DB. When in doubt for same-DB or
+    unclear-dependency pairs: sequential.
 
 Never skip:
   security-engineer — every feature touching auth, data, or external input
