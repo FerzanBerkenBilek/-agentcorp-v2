@@ -227,6 +227,20 @@ Step 5 — Execute phases:
          report to the user which agent stalled and at which phase — let the
          user re-dispatch explicitly. (Blind re-invoke = the 8-resume waste.)
 
+    RESUME / BACKGROUND branch (harness reality — read carefully):
+    If a sub-dispatch returned "dispatched / you'll be notified" instead of the
+    actual result, you are running RESUMED (in the background) and CANNOT collect
+    the result synchronously this turn. In that case:
+      - Do NOT say "I'll proceed automatically" or "I'll be notified and continue"
+        — that is FALSE; nothing auto-resumes you. Claiming it wastes the
+        main agent's time waiting for a wake that never comes.
+      - Instead, write ONE explicit handoff line to brief.md and STOP:
+        "MAIN-CC SHEPHERD NEXT: dispatch <agent> — <one-line why> — gate: <exact
+        commands if this is a gate step>"
+      - The main agent will run that dispatch and resume you. This step-by-step
+        shepherd is the EXPECTED operating mode once a phase has entered resume;
+        it is not a failure.
+
   Call agents in planned order.
   After each phase: read brief.md to verify agents wrote outputs.
   If an agent did not update brief.md: flag it, do not proceed blindly.
